@@ -10,7 +10,7 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
     """
 
     # === ФИО (пока не используется) ===
-    full_name = "Не указано"о
+    full_name = "Не указано"
 
     # === Позиция ===
     title = resume.get("title", "Не указана")
