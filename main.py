@@ -1,15 +1,8 @@
-from hh.api import findResumes
-from utils.excel_writer import append_resumes_to_excel
+import app
 import os
-import truststore
+from dotenv import load_dotenv
 
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+load_dotenv()
 
 if __name__ == "__main__":
-    result = findResumes(
-        ("1С", "everywhere", "any", "all_time"),
-        debug=False,
-        access_token=ACCESS_TOKEN
-    )
-
-    append_resumes_to_excel(result, filename="resumes.xlsx")
+    app.app.run(host='0.0.0.0', port=5000, debug=True)
