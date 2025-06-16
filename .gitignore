@@ -199,3 +199,5 @@ DeepseekAppsScript/*
 *.txt
 *db
 utils/database.py
+.env1
+hh_token/

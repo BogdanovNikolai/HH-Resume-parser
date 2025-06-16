@@ -19,7 +19,6 @@ def log_request(method: str):
             global request_counter
             request_counter += 1
             url = args[0] if len(args) > 0 else kwargs.get('url', 'unknown')
-            # Убираем извлечение params, т.к. они уже в URL
             headers = kwargs.get('headers')
 
             print(f"\n[REQUEST #{request_counter}]")
@@ -42,17 +41,18 @@ requests.post = log_request("POST")(original_post)
 
 
 # === REFRESH TOKEN ===
-def refresh_access_token(refresh_token: str, client_id: str, client_secret: str, redirect_uri: str) -> dict:
+def refresh_access_token(account_num: int) -> dict:
     """
-    Обновляет access_token через refresh_token.
+    Обновляет access_token для заданного аккаунта.
     """
+    prefix = f"{account_num}"
     token_url = "https://hh.ru/oauth/token" 
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "redirect_uri": redirect_uri
+        "refresh_token": os.getenv(f"REFRESH_TOKEN{prefix}"),
+        "client_id": os.getenv(f"CLIENT_ID{prefix}"),
+        "client_secret": os.getenv(f"CLIENT_SECRET{prefix}"),
+        "redirect_uri": os.getenv(f"REDIRECT_URI{prefix}")
     }
     response = requests.post(token_url, data=data)
     response.raise_for_status()
@@ -61,56 +61,71 @@ def refresh_access_token(refresh_token: str, client_id: str, client_secret: str,
     with open('.env', 'r') as file:
         env_lines = {line.split('=')[0]: line.split('=')[1].strip('\n') for line in file.readlines() if '=' in line}
 
-    env_lines['ACCESS_TOKEN'] = new_tokens['access_token']
+    env_lines[f'ACCESS_TOKEN{prefix}'] = new_tokens['access_token']
     if 'refresh_token' in new_tokens:
-        env_lines['REFRESH_TOKEN'] = new_tokens['refresh_token']
+        env_lines[f'REFRESH_TOKEN{prefix}'] = new_tokens['refresh_token']
 
     with open('.env', 'w') as file:
         for key, value in env_lines.items():
             file.write(f"{key}={value}\n")
 
+    print(f"[SUCCESS] Токен для аккаунта {account_num} обновлён.")
     return new_tokens
 
 
-# === DECORATOR: автообновление токена при 401/403 ===
-F = TypeVar('F', bound=Callable[..., Any])
-def auto_refresh_token(func: F) -> F:
-    """
-    Декоратор для автоматического обновления токена при получении ошибки 401 или 403.
-    """
+# === SWITCH TO NEXT ACCOUNT ===
+def switch_to_next_account(current_account: int) -> Dict[str, Any]:
+    next_account = current_account + 1
+    print(f"ACCESS_TOKEN{next_account}")
+    access_token = os.getenv(f"ACCESS_TOKEN{next_account}")
+    if not access_token:
+        raise ConnectionError("Все аккаунты исчерпаны. Лимит запросов исчерпан.")
 
+    print(f"[INFO] Переключаемся на аккаунт {next_account}")
+    return {"access_token": access_token, "account_num": next_account}
+
+
+# === DECORATOR: автообновление токена или переход на другой аккаунт ===
+F = TypeVar('F', bound=Callable[..., Any])
+def auto_refresh_or_switch_account(func: F) -> F:
     @wraps(func)
     def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code in (401, 403):
-                print("[INFO] Токен недействителен или истёк. Обновляем...")
-                CLIENT_ID = os.getenv("CLIENT_ID")
-                CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-                REDIRECT_URI = os.getenv("REDIRECT_URI")
-                REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
-
-                if not REFRESH_TOKEN:
-                    raise ConnectionError("Нет refresh_token. Нужна новая авторизация.")
-
-                new_tokens = refresh_access_token(REFRESH_TOKEN, CLIENT_ID, CLIENT_SECRET, REDIRECT_URI)
-                print("[SUCCESS] Токен обновлён.")
-                kwargs["access_token"] = new_tokens["access_token"]
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
                 return func(*args, **kwargs)
-            else:
-                raise
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code
+                current_account = kwargs.get("account_num", 1)
 
+                if status_code in (401, 403):
+                    print(f"[INFO] Токен аккаунта {current_account} истёк. Обновляем...")
+                    new_tokens = refresh_access_token(current_account)
+                    kwargs["access_token"] = new_tokens["access_token"]
+                    kwargs["account_num"] = current_account
+                    continue
+
+                elif status_code == 429:
+                    print(f"[INFO] Лимит аккаунта {current_account} исчерпан. Переключаюсь на следующий.")
+                    next_creds = switch_to_next_account(current_account)
+                    kwargs["access_token"] = next_creds["access_token"]
+                    kwargs["account_num"] = next_creds["account_num"]
+                    continue
+
+                else:
+                    print(f"[ERROR] Неожиданная ошибка: {e}")
+                    if attempt < max_retries:
+                        print(f"[RETRY] Попытка {attempt}/{max_retries}")
+                        time.sleep(3)
+                    else:
+                        raise
+
+        return None
     return wrapper
 
 
 # === PARSE FULL RESUME ===
-def get_full_resume(resume_id: str, access_token: str, max_retries: int = 5, base_delay: float = 2.0) -> Optional[Dict[str, Any]]:
-    """
-    Получает полные данные резюме по resume_id.
-    При ошибке 429 — ждёт и пробует снова.
-    Использует экспоненциальную задержку при повторах.
-    """
+def get_full_resume(resume_id: str, access_token: str, account_num: int, max_retries: int = 5, base_delay: float = 2.0) -> Optional[Dict[str, Any]]:
     url = f"https://api.hh.ru/resumes/{resume_id}" 
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -125,7 +140,7 @@ def get_full_resume(resume_id: str, access_token: str, max_retries: int = 5, bas
 
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429:
-                delay = base_delay * (2 ** attempt) + random.uniform(0.5, 1.5)
+                delay = attempt + random.uniform(0.1, 0.2)
                 print(f"[RATE LIMIT] Попытка {attempt}/{max_retries}. Ждём {delay:.2f} секунд...")
                 time.sleep(delay)
 
@@ -141,27 +156,21 @@ def get_full_resume(resume_id: str, access_token: str, max_retries: int = 5, bas
     return None
 
 
-# === findResumes с автообновлением токена ===
-@auto_refresh_token
-def findResumes(*queries, access_token: str, debug: bool = False, per_page: int = 100, limit: int = 100) -> Dict[str, Any]:
-    """
-    Функция для поиска резюме на hh.ru с поддержкой простого и сложного поиска.
-    """
+# === findResumes с поддержкой нескольких аккаунтов ===
+@auto_refresh_or_switch_account
+def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100) -> Dict[str, Any]:
     base_url = 'https://api.hh.ru/resumes' 
     headers = {
         'Authorization': f'Bearer {access_token}',
         'User-Agent': 'HH-User-Agent',
     }
+
     params = {}
 
     for i, query in enumerate(queries):
         if isinstance(query, str):
             param_prefix = f'text[{i}]' if i > 0 else 'text'
             params[param_prefix] = query
-            #params[f'{param_prefix}.field'] = 'everywhere'
-            #params[f'{param_prefix}.logic'] = 'any'
-            #params[f'{param_prefix}.period'] = 'all_time'
-
         elif isinstance(query, (tuple, list)) and len(query) == 4:
             text, field, logic, period = query
             valid_fields = {"everywhere", "experience", "skills", "education", "position"}
@@ -177,15 +186,6 @@ def findResumes(*queries, access_token: str, debug: bool = False, per_page: int 
 
             param_prefix = f'text[{i}]' if i > 0 else 'text'
             params[param_prefix] = text
-            # params[f'{param_prefix}.field'] = field
-            # params[f'{param_prefix}.logic'] = logic
-            # params[f'{param_prefix}.period'] = period
-
-        else:
-            raise ValueError(
-                f"Каждый аргумент должен быть строкой или кортежем из 4 элементов. "
-                f"Получено: {query}"
-            )
 
     params['area'] = 113  # Россия
     params['per_page'] = min(per_page, limit)
@@ -202,22 +202,28 @@ def findResumes(*queries, access_token: str, debug: bool = False, per_page: int 
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f"Ошибка при выполнении запроса к API: {e}")
+
         data = response.json()
         items = data.get('items', [])
         if not items:
             break
+
         full_resumes = []
         for item in items:
-            full_data = get_full_resume(item['id'], access_token)
+            full_data = get_full_resume(item['id'], access_token, account_num)
             if full_data:
                 full_resumes.append(full_data)
+
         all_items.extend(full_resumes)
         print(f"[INFO] Обработана страница {page}, собрано резюме: {len(all_items)}")
+
         if len(all_items) >= limit:
             break
+
         if page >= 199 and not debug:
             print("[WARNING] Достигнут лимит глубины выдачи (2000 записей). Остановка.")
             break
+
         page += 1
 
     json_result = {

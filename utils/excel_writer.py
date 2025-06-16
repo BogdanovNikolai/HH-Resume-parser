@@ -1,60 +1,45 @@
 import os
 import pandas as pd
+import requests
 from typing import List, Dict, Any, Optional
+from utils.ai_evaluator import evaluate_candidate_match
 
 
 def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
     """
     Преобразует одно резюме в нужный формат.
-    Добавляет ФИО, контакты, навыки, опыт работы и другие поля.
+    Добавляет ключевые поля: опыт, зарплата, контакты и др.
     """
-    # === ФИО ===
-    first_name = resume.get("first_name", "Не указано")
-    last_name = resume.get("last_name", "Не указано")
-    middle_name = resume.get("middle_name", "")
-    full_name = f"{last_name} {first_name} {middle_name}".strip()
-    
-    # === Позиция ===
     title = resume.get("title", "Не указана")
 
-    # === Регион ===
     area = resume.get("area", {})
     region = area.get("name", "") if isinstance(area, dict) else "Не указан"
 
-    # === Возраст ===
     age = resume.get("age") or "Не указан"
-
-    # === Пол ===
     gender = resume.get("gender", {}).get("name", "Не указан")
 
-    # === Опыт работы по компаниям ===
     experience = resume.get("experience", [])
+    total_experience = resume.get("total_experience", {})
+    total_years = total_experience.get("months", 0) // 12 if isinstance(total_experience, dict) else 0
+
+    # === Подготавливаем опыт работы ===
     experience_list = []
     for exp in experience:
         company = exp.get("company", "Без названия")
         start = exp.get("start", "").split("-")[0]
         end = exp.get("end", "").split("-")[0] if exp.get("end") else "наст. время"
         description = exp.get("description", "")
-
         try:
             years = int(end) - int(start[:4])
         except Exception:
             years = "?"
-
-        # Добавляем описание (то, что делал)
         experience_line = f"{company} — {years} лет"
         if description:
             experience_line += f"\n{description}"
-
         experience_list.append(experience_line)
 
-    experience_str = "\n\n" + "-" * 50 + "\n\n".join(experience_list)  # Разделитель между работами
+    experience_str = "\n\n".join(experience_list)
 
-    # === Общий опыт работы ===
-    total_experience = resume.get("total_experience", {})
-    total_years = total_experience.get("months", 0) // 12 if isinstance(total_experience, dict) else 0
-
-    # === Зарплата ===
     salary = resume.get("salary")
     salary_expectation = None
     if salary and isinstance(salary, dict):
@@ -62,15 +47,12 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
         currency = salary.get("currency", "")
         salary_expectation = f"{amount} {currency}".strip() or None
 
-    # === Профессиональные роли ===
     professional_roles = [role.get("name", "") for role in resume.get("professional_roles", [])]
     professional_roles_str = ", ".join(professional_roles) or "Не указаны"
 
-    # === Навыки ===
     skill_set = resume.get("skill_set", [])
     skills = ", ".join(skill_set) if skill_set else "Не указаны"
 
-    # === Контакты ===
     contact_info = []
     contacts = resume.get("contact", [])
     for contact in contacts:
@@ -84,21 +66,17 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
             formatted_phone = value.get("formatted", "").strip()
             if formatted_phone:
                 contact_info.append(f"Телефон: {formatted_phone}")
-    contact_str = "\n".join(contact_info) if contact_info else "Нет доступных контактов"
 
-    # === Ссылка на резюме ===
-    resume_link = resume.get("alternate_url", "")
-    if not resume_link:
-        resume_link = resume.get("url", "")
+    contact_str = "\n".join(contact_info) if contact_info else "Нет доступных контактов"
+    resume_link = resume.get("alternate_url", "") or resume.get("url", "")
 
     return {
-        "ФИО": full_name,
         "Позиция": title,
         "Регион": region,
         "Возраст": age,
         "Пол": gender,
         "Общий опыт работы (лет)": total_years,
-        "Опыт работы по компаниям": experience_str.strip(),
+        "Опыт работы по компаниям": experience_str,
         "Желаемая зарплата": salary_expectation,
         "Профессиональные роли": professional_roles_str,
         "Ключевые навыки": skills,
@@ -109,28 +87,51 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
 
 def append_resumes_to_excel(
     resumes_data: Dict[str, Any],
-    filename: str = "resumes_output.xlsx"
+    filename: str = "resumes_output.xlsx",
+    description_input: str = "",
+    deepseek_api_key: str = ""
 ) -> None:
     """
     Записывает данные о резюме в Excel-файл с красивой структурой.
-
-    Аргументы:
-        resumes_data (dict): Ответ от findResumes()
-        filename (str): Имя файла для сохранения
     """
+
+    print("[DEBUG] description_input:", description_input)
+    print("[DEBUG] deepseek_api_key:", deepseek_api_key[:5] + "..." if deepseek_api_key else "None")
+
     items = resumes_data.get("items", [])
 
     if not items:
         print("[INFO] Нет данных для записи.")
         return
 
-    # Подготавливаем данные
-    clean_data = [prepare_resume_data(item) for item in items]
+    clean_data = []
 
-    # Создаём DataFrame
+    for item in items:
+        resume_data = prepare_resume_data(item)
+
+        # === Получаем опыт работы кандидата ===
+        experience_descriptions = "\n".join([
+            exp.get("description", "") for exp in item.get("experience", [])
+        ])
+
+        print(f"[DEBUG] Опыт кандидата:\n{experience_descriptions}")
+
+        # === Определяем соответствие вакансии ===
+        if description_input and deepseek_api_key:
+            match_percent, explanation = evaluate_candidate_match(
+                experience_descriptions, description_input, deepseek_api_key
+            )
+            print(f"[DEBUG] Соответствие: {match_percent}% — {explanation}")
+            resume_data["Соответствие вакансии (%)"] = match_percent
+            resume_data["Заключение по совпадению"] = explanation
+        else:
+            resume_data["Соответствие вакансии (%)"] = None
+            resume_data["Заключение по совпадению"] = "Не оценивалось"
+
+        clean_data.append(resume_data)
+
     df = pd.DataFrame(clean_data)
 
-    # Сохраняем в Excel
     try:
         df.to_excel(filename, index=False, engine='openpyxl')
         print(f"[SUCCESS] Успешно записано {len(df)} записей в '{filename}'")

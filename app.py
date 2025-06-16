@@ -35,6 +35,9 @@ def export_resumes():
     keywords = request.form.get('keywords')
     area_name = request.form.get('area', 'Россия')
     count = request.form.get('count', '50')
+    description_input = request.form.get('description_input', '')  # Новое поле
+
+    print("[DEBUG] description_input:", description_input)
 
     if not keywords:
         return "Не указаны ключевые слова", 400
@@ -48,20 +51,49 @@ def export_resumes():
 
     area_id = area_name_to_id(area_name)
     queries = [kw.strip() for kw in keywords.split(",")]
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-    ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
-    if not ACCESS_TOKEN:
-        return "ACCESS_TOKEN не найден в .env", 500
+    # === Получаем список доступных токенов ===
+    access_tokens = []
+    i = 1
+    while True:
+        token = os.getenv(f"ACCESS_TOKEN{i}")
+        if token:
+            access_tokens.append(token)
+            i += 1
+        else:
+            break
 
-    try:
-        result = findResumes(*queries, access_token=ACCESS_TOKEN, limit=count)
-        filename = "resumes_output.xlsx"
-        append_resumes_to_excel(result, filename=filename)
+    if not access_tokens:
+        return "Нет доступных ACCESS_TOKEN в .env", 500
 
-        return send_file(filename, as_attachment=True)
-    except Exception as e:
-        return f"[ERROR] {e}", 500
+    print(f"[INFO] Найдено {len(access_tokens)} токенов для использования.")
+
+    # === Попробуем использовать токены по очереди ===
+    result = None
+    for idx, ACCESS_TOKEN in enumerate(access_tokens):
+        print(f"[INFO] Используется токен #{idx + 1}")
+        try:
+            result = findResumes(*queries, access_token=ACCESS_TOKEN, limit=count)
+            if result and result.get("items"):
+                print(f"[SUCCESS] Резюме успешно загружены с токеном #{idx + 1}")
+                break
+        except Exception as e:
+            print(f"[ERROR] Ошибка при использовании токена #{idx + 1}: {e}")
+            continue
+    else:
+        return "[ERROR] Не удалось загрузить резюме ни с одним из токенов.", 500
+
+    filename = "resumes_output.xlsx"
+    append_resumes_to_excel(
+        result,
+        filename=filename,
+        description_input=description_input,
+        deepseek_api_key=DEEPSEEK_API_KEY
+    )
+
+    return send_file(filename, as_attachment=True)
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
