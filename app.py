@@ -5,12 +5,30 @@ import os
 from typing import List, Dict, Any, Optional
 from threading import Thread, Lock
 from progress import progress_lock, global_progress
+import json
 
 app = Flask(__name__)
 
+def load_areas_from_file(filename):
+    with open(filename, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    return flatten_areas(data)
+
+def flatten_areas(areas_list, result=None):
+    if result is None:
+        result = []
+    for area in areas_list:
+        result.append({"id": area["id"], "name": area["name"]})
+        if area.get("areas"):
+            flatten_areas(area["areas"], result)
+    return result
+
+# Загрузка всех регионов при старте приложения
+AREAS_LIST = load_areas_from_file('utils/areas_cache.json')
+
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', areas=AREAS_LIST)
 
 @app.route('/export', methods=['POST'])
 def export_resumes():
