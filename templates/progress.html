@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Идёт обработка</title>
+  <style>
+    body { font-family: Arial; padding: 40px; text-align: center; }
+    .progress-bar {
+      width: 100%;
+      max-width: 600px;
+      height: 20px;
+      background-color: #eee;
+      border-radius: 10px;
+      margin: 20px auto;
+      overflow: hidden;
+    }
+    .progress-inner {
+      height: 100%;
+      width: 0%;
+      background-color: #4caf50;
+      transition: width 0.3s ease;
+    }
+    #percent {
+      font-size: 20px;
+      margin-top: 10px;
+    }
+    #downloadLink {
+      display: none;
+      margin-top: 30px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+<h1 id="stepTitle">Идёт загрузка резюме...</h1>
+<div class="progress-bar">
+  <div id="progressInner" class="progress-inner"></div>
+</div>
+<div id="percent">0%</div>
+<a id="downloadLink" href="/download">📥 Скачать Excel</a>
+
+<script>
+  function updateProgress() {
+    fetch('/progress').then(r => r.json()).then(data => {
+      const percent = data.percent || 0;
+      document.getElementById('percent').textContent = percent + '%';
+
+      // Меняем текст заголовка
+      const title = document.getElementById('stepTitle');
+      if (data.step === 'hh') {
+        title.textContent = 'Идёт загрузка резюме с HeadHunter';
+      } else if (data.step === 'ai') {
+        title.textContent = 'Идёт анализ через нейросеть...';
+      }
+
+      // Обновляем ширину прогресса
+      document.getElementById('progressInner').style.width = percent + '%';
+
+      if (data.status === 'готово') {
+        document.getElementById('downloadLink').style.display = 'block';
+      } else if (data.status === 'ошибка') {
+        document.getElementById('percent').textContent = 'Ошибка';
+        document.getElementById('percent').style.color = 'red';
+      } else {
+        setTimeout(updateProgress, 1000);
+      }
+    });
+  }
+
+  updateProgress();
+</script>
+
+</body>
+</html>

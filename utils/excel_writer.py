@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from typing import List, Dict, Any, Optional
 from utils.ai_evaluator import evaluate_candidate_match
+from progress import progress_lock, global_progress
 
 
 def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
@@ -91,47 +92,36 @@ def append_resumes_to_excel(
     description_input: str = "",
     deepseek_api_key: str = ""
 ) -> None:
-    """
-    Записывает данные о резюме в Excel-файл с красивой структурой.
-    """
-
-    print("[DEBUG] description_input:", description_input)
-    print("[DEBUG] deepseek_api_key:", deepseek_api_key[:5] + "..." if deepseek_api_key else "None")
-
     items = resumes_data.get("items", [])
-
     if not items:
         print("[INFO] Нет данных для записи.")
         return
 
     clean_data = []
+    with progress_lock:
+        global_progress["total_ai"] = len(items)
 
     for item in items:
         resume_data = prepare_resume_data(item)
 
-        # === Получаем опыт работы кандидата ===
-        experience_descriptions = "\n".join([
+        candidate_exp = "\n".join([
             exp.get("description", "") for exp in item.get("experience", [])
         ])
 
-        print(f"[DEBUG] Опыт кандидата:\n{experience_descriptions}")
+        match_percent = None
+        explanation = "Не оценивалось"
+        if description_input and deepseek_api_key and candidate_exp:
+            match_percent, explanation = evaluate_candidate_match(candidate_exp, description_input, deepseek_api_key)
 
-        # === Определяем соответствие вакансии ===
-        if description_input and deepseek_api_key:
-            match_percent, explanation = evaluate_candidate_match(
-                experience_descriptions, description_input, deepseek_api_key
-            )
-            print(f"[DEBUG] Соответствие: {match_percent}% — {explanation}")
-            resume_data["Соответствие вакансии (%)"] = match_percent
-            resume_data["Заключение по совпадению"] = explanation
-        else:
-            resume_data["Соответствие вакансии (%)"] = None
-            resume_data["Заключение по совпадению"] = "Не оценивалось"
-
+        resume_data["Соответствие (%)"] = match_percent
+        resume_data["Заключение"] = explanation
         clean_data.append(resume_data)
 
-    df = pd.DataFrame(clean_data)
+        # === Увеличиваем AI-прогресс ===
+        with progress_lock:
+            global_progress["current_ai"] += 1
 
+    df = pd.DataFrame(clean_data)
     try:
         df.to_excel(filename, index=False, engine='openpyxl')
         print(f"[SUCCESS] Успешно записано {len(df)} записей в '{filename}'")

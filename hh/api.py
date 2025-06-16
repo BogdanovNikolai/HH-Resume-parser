@@ -6,8 +6,17 @@ import requests
 from dotenv import load_dotenv
 import time
 import random
+from flask import current_app
+from threading import Lock
 
 load_dotenv()
+progress_lock = Lock()
+global_progress = {
+    "total": 0,
+    "current": 0,
+    "status": "ожидание",
+    "filename": None
+}
 
 # === REQUEST LOGGER DECORATOR ===
 request_counter = 0
@@ -125,7 +134,7 @@ def auto_refresh_or_switch_account(func: F) -> F:
 
 
 # === PARSE FULL RESUME ===
-def get_full_resume(resume_id: str, access_token: str, account_num: int, max_retries: int = 5, base_delay: float = 2.0) -> Optional[Dict[str, Any]]:
+def get_full_resume(resume_id: str, access_token: str, account_num: int, max_retries: int = 5, base_delay: float = 2.0, progress_callback: Optional[Callable[[int], None]] = None) -> Optional[Dict[str, Any]]:
     url = f"https://api.hh.ru/resumes/{resume_id}" 
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -136,18 +145,17 @@ def get_full_resume(resume_id: str, access_token: str, account_num: int, max_ret
         try:
             response = requests.get(url, headers=headers)
             response.raise_for_status()
+            if progress_callback:
+                progress_callback(1)
             return response.json()
-
-        except requests.exceptions.HTTPError as e:
+        except requests.exceptions.RequestException as e:
             if response.status_code == 429:
-                delay = attempt + random.uniform(0.1, 0.2)
+                delay = base_delay * (2 ** attempt) + random.uniform(0.5, 1.5)
                 print(f"[RATE LIMIT] Попытка {attempt}/{max_retries}. Ждём {delay:.2f} секунд...")
                 time.sleep(delay)
-
             elif response.status_code in (403, 401):
                 print("[ACCESS DENIED] Проверь права доступа или токен.")
                 return None
-
             else:
                 print(f"[ERROR] Ошибка {response.status_code} для {resume_id}: {e}")
                 return None
@@ -158,13 +166,12 @@ def get_full_resume(resume_id: str, access_token: str, account_num: int, max_ret
 
 # === findResumes с поддержкой нескольких аккаунтов ===
 @auto_refresh_or_switch_account
-def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100) -> Dict[str, Any]:
+def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100, progress_callback: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
     base_url = 'https://api.hh.ru/resumes' 
     headers = {
         'Authorization': f'Bearer {access_token}',
         'User-Agent': 'HH-User-Agent',
     }
-
     params = {}
 
     for i, query in enumerate(queries):
@@ -208,9 +215,12 @@ def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool =
         if not items:
             break
 
+        if progress_callback:
+            progress_callback(1)  # Первый запрос — общий поиск
+
         full_resumes = []
         for item in items:
-            full_data = get_full_resume(item['id'], access_token, account_num)
+            full_data = get_full_resume(item['id'], access_token, account_num, progress_callback=progress_callback)
             if full_data:
                 full_resumes.append(full_data)
 
