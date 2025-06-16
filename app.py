@@ -34,10 +34,17 @@ def index():
 def export_resumes():
     keywords = request.form.get('keywords')
     area_name = request.form.get('area', 'Россия')
-    min_salary = request.form.get('min_salary')
+    count = request.form.get('count', '50')
 
     if not keywords:
         return "Не указаны ключевые слова", 400
+
+    try:
+        count = int(count)
+        if count <= 0 or count > 2000:
+            return "Количество должно быть от 1 до 2000", 400
+    except ValueError:
+        return "Неверное значение количества", 400
 
     area_id = area_name_to_id(area_name)
     queries = [kw.strip() for kw in keywords.split(",")]
@@ -47,7 +54,7 @@ def export_resumes():
         return "ACCESS_TOKEN не найден в .env", 500
 
     try:
-        result = findResumes(*queries, access_token=ACCESS_TOKEN, debug=False)
+        result = findResumes(*queries, access_token=ACCESS_TOKEN, limit=count)
         filename = "resumes_output.xlsx"
         append_resumes_to_excel(result, filename=filename)
 

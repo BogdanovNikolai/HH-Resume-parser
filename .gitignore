@@ -197,3 +197,5 @@ cython_debug/
 DeepseekAppsScript/*
 *.xlsx
 *.txt
+*db
+utils/database.py

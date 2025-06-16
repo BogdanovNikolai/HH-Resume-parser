@@ -6,12 +6,14 @@ from typing import List, Dict, Any, Optional
 def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
     """
     Преобразует одно резюме в нужный формат.
-    Скрывает ФИО, добавляет контакты, навыки и другие поля.
+    Добавляет ФИО, контакты, навыки, опыт работы и другие поля.
     """
-
-    # === ФИО (пока не используется) ===
-    full_name = "Не указано"
-
+    # === ФИО ===
+    first_name = resume.get("first_name", "Не указано")
+    last_name = resume.get("last_name", "Не указано")
+    middle_name = resume.get("middle_name", "")
+    full_name = f"{last_name} {first_name} {middle_name}".strip()
+    
     # === Позиция ===
     title = resume.get("title", "Не указана")
 
@@ -25,26 +27,32 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
     # === Пол ===
     gender = resume.get("gender", {}).get("name", "Не указан")
 
-    # === Опыт работы ===
+    # === Опыт работы по компаниям ===
     experience = resume.get("experience", [])
-    total_experience = resume.get("total_experience", {})
-    total_years = total_experience.get("months", 0) // 12 if isinstance(total_experience, dict) else 0
-
-    # === Опыт по компаниям ===
     experience_list = []
     for exp in experience:
         company = exp.get("company", "Без названия")
         start = exp.get("start", "").split("-")[0]
         end = exp.get("end", "").split("-")[0] if exp.get("end") else "наст. время"
+        description = exp.get("description", "")
 
         try:
             years = int(end) - int(start[:4])
         except Exception:
             years = "?"
 
-        experience_list.append(f"{company} — {years} лет")
+        # Добавляем описание (то, что делал)
+        experience_line = f"{company} — {years} лет"
+        if description:
+            experience_line += f"\n{description}"
 
-    experience_str = "\n".join(experience_list)
+        experience_list.append(experience_line)
+
+    experience_str = "\n\n" + "-" * 50 + "\n\n".join(experience_list)  # Разделитель между работами
+
+    # === Общий опыт работы ===
+    total_experience = resume.get("total_experience", {})
+    total_years = total_experience.get("months", 0) // 12 if isinstance(total_experience, dict) else 0
 
     # === Зарплата ===
     salary = resume.get("salary")
@@ -64,11 +72,9 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
 
     # === Контакты ===
     contact_info = []
-
     contacts = resume.get("contact", [])
     for contact in contacts:
         contact_type = contact.get("type", {}).get("name", "").lower()
-
         if contact_type == "эл. почта":
             email = contact.get("value", "").strip()
             if email:
@@ -78,7 +84,6 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
             formatted_phone = value.get("formatted", "").strip()
             if formatted_phone:
                 contact_info.append(f"Телефон: {formatted_phone}")
-
     contact_str = "\n".join(contact_info) if contact_info else "Нет доступных контактов"
 
     # === Ссылка на резюме ===
@@ -93,7 +98,7 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
         "Возраст": age,
         "Пол": gender,
         "Общий опыт работы (лет)": total_years,
-        "Опыт работы по компаниям": experience_str,
+        "Опыт работы по компаниям": experience_str.strip(),
         "Желаемая зарплата": salary_expectation,
         "Профессиональные роли": professional_roles_str,
         "Ключевые навыки": skills,

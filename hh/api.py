@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict, Any, Optional, Union, Tuple, Callable, TypeVar
+from typing import List, Dict, Any, Optional, Union, Callable, TypeVar
 from functools import wraps
 from urllib.parse import urlencode
 import requests
@@ -9,19 +9,42 @@ import random
 
 load_dotenv()
 
+# === REQUEST LOGGER DECORATOR ===
+request_counter = 0
+
+def log_request(method: str):
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            global request_counter
+            request_counter += 1
+            url = args[0] if len(args) > 0 else kwargs.get('url', 'unknown')
+            # Убираем извлечение params, т.к. они уже в URL
+            headers = kwargs.get('headers')
+
+            print(f"\n[REQUEST #{request_counter}]")
+            print(f"Method: {method}")
+            print(f"URL: {url}")
+            if headers:
+                print(f"Headers: {headers}")
+
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+# Переопределяем методы requests с декоратором
+original_get = requests.get
+original_post = requests.post
+
+requests.get = log_request("GET")(original_get)
+requests.post = log_request("POST")(original_post)
+
+
 # === REFRESH TOKEN ===
 def refresh_access_token(refresh_token: str, client_id: str, client_secret: str, redirect_uri: str) -> dict:
     """
     Обновляет access_token через refresh_token.
-
-    Аргументы:
-        refresh_token (str): текущий refresh_token
-        client_id (str): ID клиента
-        client_secret (str): секрет клиента
-        redirect_uri (str): URI перенаправления
-
-    Возвращает:
-        dict: новый токен (access_token, refresh_token)
     """
     token_url = "https://hh.ru/oauth/token" 
     data = {
@@ -85,18 +108,8 @@ def auto_refresh_token(func: F) -> F:
 def get_full_resume(resume_id: str, access_token: str, max_retries: int = 5, base_delay: float = 2.0) -> Optional[Dict[str, Any]]:
     """
     Получает полные данные резюме по resume_id.
-    
     При ошибке 429 — ждёт и пробует снова.
     Использует экспоненциальную задержку при повторах.
-    
-    Аргументы:
-        resume_id (str): ID резюме
-        access_token (str): действительный Bearer-токен
-        max_retries (int): максимальное число попыток
-        base_delay (float): базовая задержка в секундах
-        
-    Возвращает:
-        dict | None: полное резюме или None при ошибке
     """
     url = f"https://api.hh.ru/resumes/{resume_id}" 
     headers = {
@@ -116,7 +129,7 @@ def get_full_resume(resume_id: str, access_token: str, max_retries: int = 5, bas
                 print(f"[RATE LIMIT] Попытка {attempt}/{max_retries}. Ждём {delay:.2f} секунд...")
                 time.sleep(delay)
 
-            elif response.status_code == 403 or response.status_code == 401:
+            elif response.status_code in (403, 401):
                 print("[ACCESS DENIED] Проверь права доступа или токен.")
                 return None
 
@@ -130,19 +143,10 @@ def get_full_resume(resume_id: str, access_token: str, max_retries: int = 5, bas
 
 # === findResumes с автообновлением токена ===
 @auto_refresh_token
-def findResumes(*queries, access_token: str, debug: bool = False) -> Dict[str, Any]:
+def findResumes(*queries, access_token: str, debug: bool = False, per_page: int = 100, limit: int = 100) -> Dict[str, Any]:
     """
     Функция для поиска резюме на hh.ru с поддержкой простого и сложного поиска.
-
-    Аргументы:
-        *queries: строки или кортежи (text, field, logic, period)
-        access_token: текущий токен
-        debug: если True — только 5 записей
-
-    Возвращает:
-        dict: результат поиска в формате JSON
     """
-
     base_url = 'https://api.hh.ru/resumes' 
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -154,9 +158,9 @@ def findResumes(*queries, access_token: str, debug: bool = False) -> Dict[str, A
         if isinstance(query, str):
             param_prefix = f'text[{i}]' if i > 0 else 'text'
             params[param_prefix] = query
-            params[f'{param_prefix}.field'] = 'everywhere'
-            params[f'{param_prefix}.logic'] = 'any'
-            params[f'{param_prefix}.period'] = 'all_time'
+            #params[f'{param_prefix}.field'] = 'everywhere'
+            #params[f'{param_prefix}.logic'] = 'any'
+            #params[f'{param_prefix}.period'] = 'all_time'
 
         elif isinstance(query, (tuple, list)) and len(query) == 4:
             text, field, logic, period = query
@@ -173,9 +177,9 @@ def findResumes(*queries, access_token: str, debug: bool = False) -> Dict[str, A
 
             param_prefix = f'text[{i}]' if i > 0 else 'text'
             params[param_prefix] = text
-            params[f'{param_prefix}.field'] = field
-            params[f'{param_prefix}.logic'] = logic
-            params[f'{param_prefix}.period'] = period
+            # params[f'{param_prefix}.field'] = field
+            # params[f'{param_prefix}.logic'] = logic
+            # params[f'{param_prefix}.period'] = period
 
         else:
             raise ValueError(
@@ -183,44 +187,37 @@ def findResumes(*queries, access_token: str, debug: bool = False) -> Dict[str, A
                 f"Получено: {query}"
             )
 
-    params['area'] = 113        # Россия
-    params['per_page'] = 100
-    if debug:
-        params['per_page'] = 5
+    params['area'] = 113  # Россия
+    params['per_page'] = min(per_page, limit)
 
     all_items = []
     page = 0
 
-    while True:
+    while len(all_items) < limit:
         try:
             params['page'] = page
-            response = requests.get(base_url, params=params, headers=headers)
+            encoded_params = urlencode(params)
+            full_url = f"{base_url}?{encoded_params}"
+            response = requests.get(full_url, headers=headers)
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f"Ошибка при выполнении запроса к API: {e}")
-
         data = response.json()
         items = data.get('items', [])
-
         if not items:
             break
-
         full_resumes = []
         for item in items:
             full_data = get_full_resume(item['id'], access_token)
             if full_data:
                 full_resumes.append(full_data)
-
         all_items.extend(full_resumes)
         print(f"[INFO] Обработана страница {page}, собрано резюме: {len(all_items)}")
-
-        if debug or page >= 1:
+        if len(all_items) >= limit:
             break
-
         if page >= 199 and not debug:
             print("[WARNING] Достигнут лимит глубины выдачи (2000 записей). Остановка.")
             break
-
         page += 1
 
     json_result = {
