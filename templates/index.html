@@ -97,6 +97,40 @@
 </head>
 <body>
 
+<div id="limit-counter" style="
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background-color: #f5f5f5;
+    border: 1px solid #ddd;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    z-index: 1000;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+">
+  {% if resume_limit is not none %}
+    Осталось запросов: <strong>{{ resume_limit }}</strong>
+  {% else %}
+    Лимит неизвестен
+  {% endif %}
+</div>
+
+<script>
+function updateLimitCounter() {
+  fetch('/api/resume-limit')
+    .then(res => res.json())
+    .then(data => {
+      const counter = document.getElementById('limit-counter');
+      if (data.limit !== null) {
+        counter.innerHTML = 'Осталось запросов: <strong>' + data.limit + '</strong>';
+      } else {
+        counter.innerHTML = 'Лимит неизвестен';
+      }
+    });
+}
+</script>
+
 <div class="container">
   <h1>Поиск резюме</h1>
   <form action="/export" method="post">

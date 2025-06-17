@@ -1,11 +1,12 @@
 from flask import Flask, render_template, request, send_file, jsonify
-from hh.api import findResumes
+from hh.api import findResumes, get_manager_id, get_resume_limits
 from utils.excel_writer import append_resumes_to_excel
 import os
 from typing import List, Dict, Any, Optional
 from threading import Thread, Lock
 from progress import progress_lock, global_progress
 import json
+import requests
 
 app = Flask(__name__)
 
@@ -28,7 +29,182 @@ AREAS_LIST = load_areas_from_file('utils/areas_cache.json')
 
 @app.route('/')
 def index():
-    return render_template('index.html', areas=AREAS_LIST)
+    access_tokens = []
+    i = 1
+    while True:
+        token = os.getenv(f"ACCESS_TOKEN{i}")
+        if token:
+            access_tokens.append(token)
+            i += 1
+        else:
+            break
+
+    if not access_tokens:
+        return render_template('index.html', areas=AREAS_LIST, resume_limit=None)
+
+    # Используем первый токен
+    access_token = access_tokens[0]
+    employer_id = "104309"  # Номер компании из задания
+
+    try:
+        manager_id = get_manager_id(access_token)
+        if not manager_id:
+            return render_template('index.html', areas=AREAS_LIST, resume_limit=None)
+
+        limits = get_resume_limits(employer_id, manager_id, access_token)
+        resume_left = limits.get("left", {}).get("resume_view", 0)
+    except Exception as e:
+        print(f"[ERROR] Не удалось получить лимиты: {e}")
+        resume_left = None
+
+    return render_template('index.html', areas=AREAS_LIST, resume_limit=resume_left)
+
+@app.route('/api/resume-limit')
+def resume_limit_api():
+    access_tokens = []
+    i = 1
+    while True:
+        token = os.getenv(f"ACCESS_TOKEN{i}")
+        if token:
+            access_tokens.append(token)
+            i += 1
+        else:
+            break
+
+    if not access_tokens:
+        return jsonify({"limit": None})
+
+    access_token = access_tokens[0]
+    employer_id = "104309"
+
+    try:
+        manager_id = get_manager_id(access_token)
+        if not manager_id:
+            return jsonify({"limit": None})
+
+        limits = get_resume_limits(employer_id, manager_id, access_token)
+        return jsonify({"limit": limits.get("left", {}).get("resume_view_from_api", None)})
+    except Exception as e:
+        print(f"[ERROR] Ошибка получения лимита: {e}")
+        return jsonify({"limit": None})
+
+@app.route('/vacancies')
+def vacancies():
+    access_tokens = []
+    i = 1
+    while True:
+        token = os.getenv(f"ACCESS_TOKEN{i}")
+        if token:
+            access_tokens.append(token)
+            i += 1
+        else:
+            break
+
+    if not access_tokens:
+        return "Нет доступных токенов", 500
+
+    from hh.api import get_company_vacancies, get_employer_id
+    try:
+        employer_id = get_employer_id(access_tokens[0])
+        if not employer_id:
+            return render_template('vacancies.html', error="Не удалось получить ID работодателя.", vacancies=[])
+
+        vacancies_list = get_company_vacancies(access_tokens[0], employer_id)
+        if not vacancies_list:
+            return render_template('vacancies.html', error="Нет активных вакансий.", vacancies=[])
+
+        result = []
+        for vacancy in vacancies_list:
+            vacancy_id = vacancy["id"]
+            url = f"https://api.hh.ru/negotiations?vacancy_id={vacancy_id}"
+            headers = {
+                'Authorization': f'Bearer {access_tokens[0]}',
+                'User-Agent': 'HH-User-Agent'
+            }
+            try:
+                resp = requests.get(url, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                total = sum(coll["counters"]["total"] for coll in data.get("collections", []))
+                unread = sum(coll["counters"]["with_updates"] for coll in data.get("collections", []))
+                result.append({
+                    "vacancy": vacancy,
+                    "total_responses": total,
+                    "new_responses": unread
+                })
+            except Exception as e:
+                print(f"[ERROR] Ошибка при получении откликов для вакансии {vacancy_id}: {e}")
+
+        return render_template('vacancies.html', vacancies=result, error=None)
+
+    except Exception as e:
+        print(f"[ERROR] Ошибка при получении данных: {e}")
+        return render_template('vacancies.html', error="Ошибка получения вакансий. Проверьте права доступа или токен.", vacancies=[])
+
+
+@app.route('/vacancy/<vacancy_id>/export')
+def export_vacancy_resumes(vacancy_id):
+    access_tokens = []
+    i = 1
+    while True:
+        token = os.getenv(f"ACCESS_TOKEN{i}")
+        if token:
+            access_tokens.append(token)
+            i += 1
+        else:
+            break
+
+    if not access_tokens:
+        return "Нет доступных токенов", 500
+
+    # Получаем все отклики по вакансии 
+    from hh.api import findResumes
+    def background_task(vacancy_id):
+        nonlocal access_tokens
+        result = None
+        for idx, token in enumerate(access_tokens):
+            print(f"[INFO] Используется токен #{idx + 1}")
+            try:
+                def update_progress(delta: int = 1):
+                    with progress_lock:
+                        if global_progress["step"] == "hh":
+                            global_progress["current_hh"] += delta
+                            if global_progress["current_hh"] >= global_progress["total_hh"]:
+                                global_progress["step"] = "ai"
+
+                # Здесь можно указать лимит, например, 100
+                result = findResumes(
+                    f"vacancy_id:{vacancy_id}",
+                    access_token=token,
+                    limit=100,
+                    area_id="1",
+                    progress_callback=update_progress
+                )
+                if result and result.get("items"):
+                    print(f"[SUCCESS] Резюме загружены для вакансии {vacancy_id}")
+                    break
+            except Exception as e:
+                print(f"[ERROR] Ошибка с токеном #{idx + 1}: {e}")
+                continue
+        else:
+            with progress_lock:
+                global_progress["status"] = "ошибка"
+            return
+
+        filename = f"resumes_output_{vacancy_id}.xlsx"
+        from utils.excel_writer import append_resumes_to_excel
+        description_input = ""  # Можно передать описание из БД или формы
+        DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+        append_resumes_to_excel(result, filename=filename, description_input=description_input, deepseek_api_key=DEEPSEEK_API_KEY)
+
+        with progress_lock:
+            global_progress["status"] = "готово"
+            global_progress["filename"] = filename
+
+    thread = Thread(target=background_task, args=(vacancy_id,))
+    thread.start()
+
+    return render_template("progress.html")
 
 @app.route('/export', methods=['POST'])
 def export_resumes():

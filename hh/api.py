@@ -132,6 +132,55 @@ def auto_refresh_or_switch_account(func: F) -> F:
         return None
     return wrapper
 
+def get_employer_id(access_token: str) -> Optional[str]:
+    url = "https://api.hh.ru/me" 
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "HH-User-Agent"
+    }
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("employer", {}).get("id")
+
+def get_company_vacancies(access_token: str, employer_id: str) -> List[Dict[str, Any]]:
+    url = f"https://api.hh.ru/employers/{employer_id}/vacancies/active" 
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "HH-User-Agent"
+    }
+    response = requests.get(url, headers=headers)
+    print(response.json())
+    try:
+        response.raise_for_status()
+        return response.json().get("items", [])
+    except requests.exceptions.HTTPError as e:
+        print(f"[ERROR] Ошибка при получении вакансий: {e}")
+        if response.status_code == 403:
+            print("[ACCESS_DENIED] Учетная запись не имеет прав на просмотр вакансий.")
+        return []
+
+def get_manager_id(access_token: str) -> Optional[str]:
+    url = "https://api.hh.ru/me" 
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "HH-User-Agent"
+    }
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("manager", {}).get("id")
+
+
+def get_resume_limits(employer_id: str, manager_id: str, access_token: str) -> dict:
+    url = f"https://api.hh.ru/employers/{employer_id}/managers/{manager_id}/limits/resume" 
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "HH-User-Agent"
+    }
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()
 
 # === PARSE FULL RESUME ===
 def get_full_resume(resume_id: str, access_token: str, account_num: int, max_retries: int = 5, base_delay: float = 2.0, progress_callback: Optional[Callable[[int], None]] = None) -> Optional[Dict[str, Any]]:
