@@ -1,4 +1,4 @@
-import os
+﻿import os
 from typing import List, Dict, Any, Optional, Union, Callable, TypeVar
 from functools import wraps
 from urllib.parse import urlencode
@@ -244,7 +244,7 @@ def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool =
             params[param_prefix] = text
 
     params['area'] = area_id
-    print(params['area'])
+    print("111111!!!", params['area'])
     params['per_page'] = min(per_page, limit)
 
     all_items = []
