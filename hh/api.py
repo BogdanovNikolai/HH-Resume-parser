@@ -166,7 +166,7 @@ def get_full_resume(resume_id: str, access_token: str, account_num: int, max_ret
 
 # === findResumes с поддержкой нескольких аккаунтов ===
 @auto_refresh_or_switch_account
-def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100, progress_callback: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
+def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100, area_id: str = "113", progress_callback: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
     base_url = 'https://api.hh.ru/resumes' 
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -194,7 +194,8 @@ def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool =
             param_prefix = f'text[{i}]' if i > 0 else 'text'
             params[param_prefix] = text
 
-    params['area'] = 113  # Россия
+    params['area'] = area_id
+    print(params['area'])
     params['per_page'] = min(per_page, limit)
 
     all_items = []

@@ -35,8 +35,8 @@ def export_resumes():
     global global_progress
 
     keywords = request.form.get('keywords')
-    area_name = request.form.get('area', 'Россия')
-    count = request.form.get('count', '50')
+    area_id = request.form.get('area')
+    count = request.form.get('count', '10')
     description_input = request.form.get('description_input', '')  # Описание вакансии
 
     if not keywords:
@@ -91,7 +91,7 @@ def export_resumes():
                             if global_progress["current_hh"] >= global_progress["total_hh"]:
                                 global_progress["step"] = "ai"
 
-                result = findResumes(*queries, access_token=token, limit=count, progress_callback=update_progress)
+                result = findResumes(*queries, access_token=token, limit=count, area_id=area_id, progress_callback=update_progress)
                 if result and result.get("items"):
                     print(f"[SUCCESS] Резюме загружены с токеном #{idx + 1}")
                     break
