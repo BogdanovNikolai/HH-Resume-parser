@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, send_file, jsonify
-from hh.api import findResumes, get_manager_id, get_resume_limits
-from utils.excel_writer import append_resumes_to_excel
+from hh.api import findResumes, get_manager_id, get_resume_limits, get_new_responses
+from utils.excel_writer import append_resumes_to_excel, save_new_resumes_to_excel
 import os
 from typing import List, Dict, Any, Optional
 from threading import Thread, Lock
@@ -206,6 +206,39 @@ def export_vacancy_resumes(vacancy_id):
 
     return render_template("progress.html")
 
+@app.route('/vacancy/<vacancy_id>/export_new')
+def export_new_responses(vacancy_id):
+    access_tokens = []
+    i = 1
+    while True:
+        token = os.getenv(f"ACCESS_TOKEN{i}")
+        if token:
+            access_tokens.append(token)
+            i += 1
+        else:
+            break
+
+    if not access_tokens:
+        return "Нет доступных токенов", 500
+
+    result = None
+    for idx, token in enumerate(access_tokens):
+        try:
+            result = get_new_responses(vacancy_id, token)
+            if result and result.get("items"):
+                print(f"[SUCCESS] Новые отклики получены с токеном #{idx + 1}")
+                break
+        except Exception as e:
+            print(f"[ERROR] Ошибка с токеном #{idx + 1}: {e}")
+            continue
+    else:
+        return "Не удалось получить новые отклики", 500
+
+    filename = f"new_resumes_output_{vacancy_id}.xlsx"
+    save_new_resumes_to_excel(result["items"], filename=filename)
+
+    return send_file(filename, as_attachment=True)
+
 @app.route('/export', methods=['POST'])
 def export_resumes():
     global global_progress
@@ -282,7 +315,6 @@ def export_resumes():
 
         # === Переключаемся на AI-оценку ===
         filename = "resumes_output.xlsx"
-        from utils.excel_writer import append_resumes_to_excel
 
         append_resumes_to_excel(result, filename=filename, description_input=description_input, deepseek_api_key=DEEPSEEK_API_KEY)
 

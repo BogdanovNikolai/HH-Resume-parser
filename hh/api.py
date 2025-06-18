@@ -244,6 +244,51 @@ def get_full_resume(resume_id: str, access_token: str, account_num: int, max_ret
     print(f"[FAILED] Не удалось загрузить резюме {resume_id} после {max_retries} попыток.")
     return None
 
+def get_new_responses(vacancy_id: str, access_token: str) -> Dict[str, Any]:
+    """
+    Получает список новых откликов на вакансию.
+    
+    :param vacancy_id: ID вакансии
+    :param access_token: Токен доступа HH.ru
+    :return: JSON-ответ с резюме кандидатов
+    """
+    url = f"https://api.hh.ru/negotiations/response" 
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "HH-User-Agent"
+    }
+    params = {
+        "vacancy_id": vacancy_id,
+        "show_only_new_responses": True
+    }
+
+    all_items = []
+    page = 0
+    while True:
+        # Добавляем параметры пагинации
+        current_params = params.copy()
+        current_params.update({"page": page, "per_page": 20})  # максимум 100 записей на странице
+
+        try:
+            response = requests.get(url=url, headers=headers, params=current_params)
+            response.raise_for_status()
+            data = response.json()
+
+            items = data.get("items", [])
+            all_items.extend(items)
+
+            # Проверяем, есть ли ещё страницы
+            if page >= data.get("pages", 0) - 1:
+                break
+
+            page += 1
+
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Ошибка при получении новых откликов: {e}")
+            break
+
+    print(f"[SUCCESS] Загружено {len(all_items)} новых откликов")
+    return {"items": all_items}
 
 # === findResumes с поддержкой нескольких аккаунтов ===
 @auto_refresh_or_switch_account
@@ -278,6 +323,7 @@ def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool =
     params['area'] = area_id
     if salary_to:
         params['salary_to'] = salary_to
+    # params['label'] = "only_with_salary"
     params['per_page'] = min(per_page, limit)
 
     all_items = []
