@@ -144,21 +144,53 @@ def get_employer_id(access_token: str) -> Optional[str]:
     return data.get("employer", {}).get("id")
 
 def get_company_vacancies(access_token: str, employer_id: str) -> List[Dict[str, Any]]:
-    url = f"https://api.hh.ru/employers/{employer_id}/vacancies/active" 
+    url = "https://api.hh.ru/vacancies" 
     headers = {
         "Authorization": f"Bearer {access_token}",
         "User-Agent": "HH-User-Agent"
     }
-    response = requests.get(url, headers=headers)
-    print(response.json())
-    try:
-        response.raise_for_status()
-        return response.json().get("items", [])
-    except requests.exceptions.HTTPError as e:
-        print(f"[ERROR] Ошибка при получении вакансий: {e}")
-        if response.status_code == 403:
-            print("[ACCESS_DENIED] Учетная запись не имеет прав на просмотр вакансий.")
-        return []
+    params = {
+        'employer_id': employer_id
+    }
+
+    all_vacancies = []
+    page = 0
+
+    while True:
+        try:
+            params['page'] = page
+            response = requests.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            items = data.get("items", [])
+            if not items:
+                print("[INFO] Больше нет данных.")
+                break
+
+            all_vacancies.extend(items)
+            print(f"[INFO] Загружена страница вакансий #{page}, собрано: {len(all_vacancies)}")
+
+            # Проверяем, достигли ли лимита в 200 страниц
+            if page >= 199:
+                print("[WARNING] Достигнут лимит в 200 страниц. Остановка.")
+                break
+
+            # Проверяем, есть ли ещё страницы по данным API
+            if page >= data.get("pages", 0) - 1:
+                print("[INFO] Все доступные страницы загружены.")
+                break
+
+            page += 1
+            time.sleep(1)  # Защита от спама
+
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Ошибка при получении вакансий: {e}")
+            if response.status_code == 403:
+                print("[ACCESS_DENIED] Учетная запись не имеет прав на просмотр вакансий.")
+            break
+
+    return all_vacancies
 
 def get_manager_id(access_token: str) -> Optional[str]:
     url = "https://api.hh.ru/me" 
@@ -215,7 +247,7 @@ def get_full_resume(resume_id: str, access_token: str, account_num: int, max_ret
 
 # === findResumes с поддержкой нескольких аккаунтов ===
 @auto_refresh_or_switch_account
-def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100, area_id: str = "113", progress_callback: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
+def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100, area_id: str = "113", salary_to: int = None, progress_callback: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
     base_url = 'https://api.hh.ru/resumes' 
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -244,7 +276,8 @@ def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool =
             params[param_prefix] = text
 
     params['area'] = area_id
-    print("111111!!!", params['area'])
+    if salary_to:
+        params['salary_to'] = salary_to
     params['per_page'] = min(per_page, limit)
 
     all_items = []
