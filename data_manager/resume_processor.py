@@ -23,7 +23,28 @@ class ResumeProcessor:
     def __init__(self):
         log.info("ResumeProcessor успешно инициализирован.")
 
-    def format_resume(self, resume_json: Dict[str, Any]) -> Dict[str, Any]:
+    def to_db_format(self, formatted_resume: dict) -> dict:
+        return {
+            "resume_id": formatted_resume["ID Резюме"],
+            "first_name": formatted_resume["Имя"],
+            "last_name": formatted_resume["Фамилия"],
+            "middle_name": formatted_resume["Отчество"],
+            "gender": formatted_resume["Пол"],
+            "age": formatted_resume["Возраст"],
+            "salary": formatted_resume["Желаемая ЗП"],  # Используем 'salary', а не 'desired_salary'
+            "title": formatted_resume["Должность"],
+            "area": formatted_resume["Город"],
+            "experience": formatted_resume["Опыт работы"],
+            "skills": formatted_resume["Ключевые навыки"],
+            "contacts": formatted_resume["Контакты"],
+            "link": formatted_resume["Ссылка на резюме"],
+            "updated_at": formatted_resume["Обновлено"],
+            "total_experience": formatted_resume.get("Общий опыт (лет)"),  # Используем 'total_experience'
+            "match_percent": formatted_resume.get("match_percent"),
+            "explanation": formatted_resume.get("explanation")
+        }
+    
+    def format_resume(self, resume_json: Dict[str, Any], description_input: Optional[str] = None) -> Dict[str, Any]:
         """
         Преобразует raw резюме из HH API в структурированный вид для отображения.
 

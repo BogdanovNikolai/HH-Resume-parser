@@ -31,7 +31,7 @@ class Config:
         """Возвращает словарь с токенами HH"""
         return {
             f"CLIENT_ID{i}": os.getenv(f"CLIENT_ID{i}")
-            for i in range(1, 10)
+            for i in range(1, 3)
             if os.getenv(f"CLIENT_ID{i}")
         }
 
@@ -40,7 +40,7 @@ class Config:
         """Возвращает список ACCESS_TOKEN'ов"""
         return [
             os.getenv(f"ACCESS_TOKEN{i}")
-            for i in range(1, 10)
+            for i in range(1, 3)
             if os.getenv(f"ACCESS_TOKEN{i}")
         ]
 
@@ -62,6 +62,8 @@ class Config:
     REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "10"))
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
     TTL_HOURS: int = int(os.getenv("TTL_HOURS", "24"))
+
+    DEFAULT_EMPLOYER_ID: str = os.getenv("DEFAULT_EMPLOYER_ID", 104309)
 
     @classmethod
     def setup_logger(cls):
