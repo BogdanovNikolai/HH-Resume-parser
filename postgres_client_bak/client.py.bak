@@ -1,6 +1,6 @@
 import psycopg2
 import logging
-from typing import Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 from config import app_config  # Импортируем глобальный экземпляр конфига
 
 # Настройка логгирования
@@ -110,3 +110,68 @@ class PostgresClient:
         if hasattr(self, 'conn'):
             self.conn.close()
         logger.info("Соединение с PostgreSQL закрыто.")
+        
+    def get_cached_resume(self, resume_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Получает последнее актуальное резюме (не старше 1 месяца).
+        """
+        try:
+            self.cur.execute("""
+                SELECT * FROM resumes
+                WHERE resume_id = %s
+                AND created_at >= NOW() - INTERVAL '1 month'
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (resume_id,))
+            result = self.cur.fetchone()
+            if not result:
+                return None
+            columns = [desc[0] for desc in self.cur.description]
+            return dict(zip(columns, result))
+        except Exception as e:
+            logger.error(f"Ошибка при получении кэшированного резюме {resume_id}: {e}")
+            return None
+    
+    def save_resumes(self, task_id: str, resumes: List[Dict[str, Any]]) -> None:
+        """
+        Сохраняет список резюме в БД, привязывает к task_id.
+        Если резюме уже есть — обновляет его данные.
+        """
+        query = """
+            INSERT INTO resumes (
+                resume_id, first_name, last_name, middle_name, gender, age, salary,
+                title, area, experience, skills, contacts, link, updated_at,
+                match_percent, explanation, total_experience, task_id, vacancy_id, created_at
+            ) VALUES (
+                %(resume_id)s, %(first_name)s, %(last_name)s, %(middle_name)s, %(gender)s,
+                %(age)s, %(salary)s, %(title)s, %(area)s, %(experience)s, %(skills)s,
+                %(contacts)s, %(link)s, %(updated_at)s, %(match_percent)s, %(explanation)s,
+                %(total_experience)s, %(task_id)s, %(vacancy_id)s, %(created_at)s
+            )
+            ON CONFLICT (resume_id) DO UPDATE SET
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                middle_name = EXCLUDED.middle_name,
+                gender = EXCLUDED.gender,
+                age = EXCLUDED.age,
+                salary = EXCLUDED.salary,
+                title = EXCLUDED.title,
+                area = EXCLUDED.area,
+                experience = EXCLUDED.experience,
+                skills = EXCLUDED.skills,
+                contacts = EXCLUDED.contacts,
+                link = EXCLUDED.link,
+                updated_at = EXCLUDED.updated_at,
+                match_percent = EXCLUDED.match_percent,
+                explanation = EXCLUDED.explanation,
+                total_experience = EXCLUDED.total_experience,
+                task_id = EXCLUDED.task_id,
+                vacancy_id = EXCLUDED.vacancy_id
+        """
+        try:
+            self.cur.executemany(query, resumes)
+            self.conn.commit()
+            logger.info(f"[DB] Сохранено {len(resumes)} резюме для задачи '{task_id}'")
+        except Exception as e:
+            logger.error(f"[DB] Ошибка при сохранении резюме для задачи '{task_id}': {e}")
+            self.conn.rollback()

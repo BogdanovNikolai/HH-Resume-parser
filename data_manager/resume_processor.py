@@ -1,0 +1,149 @@
+"""
+data_manager/resume_processor.py
+
+Модуль содержит класс ResumeProcessor — утилиту для обработки и форматирования
+сырых данных о резюме, полученных из HeadHunter API.
+"""
+
+from typing import Dict, Any, List, Optional
+from config import log
+
+
+class ResumeProcessor:
+    """
+    Класс для обработки и форматирования резюме из HeadHunter API.
+
+    Методы:
+    - format_resume() — преобразует raw JSON в словарь с полями для таблицы.
+    - extract_experience_text() — извлекает текстовый опыт для AI-анализа.
+    - flatten_experience() — превращает массив опыта в строку.
+    - extract_contacts() — собирает контактную информацию.
+    """
+
+    def __init__(self):
+        log.info("ResumeProcessor успешно инициализирован.")
+
+    def format_resume(self, resume_json: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Преобразует raw резюме из HH API в структурированный вид для отображения.
+
+        :param resume_json: сырые данные о резюме из HH API
+        :return: словарь с ключами: "Позиция", "Регион", "Возраст", "Опыт", и т.д.
+        """
+        try:
+            result = {
+                "ID Резюме": resume_json.get("id", "Не указано"),
+                "Имя": resume_json.get("first_name", "Не указано"),
+                "Фамилия": resume_json.get("last_name", "Не указано"),
+                "Отчество": resume_json.get("middle_name", "Не указано"),
+                "Пол": resume_json.get("gender", {}).get("name", "Не указано"),
+                "Возраст": resume_json.get("age", "Не указано"),
+                "Желаемая ЗП": self._extract_salary(resume_json),
+                "Должность": resume_json.get("title", "Не указана"),
+                "Город": resume_json.get("area", {}).get("name", "Не указан"),
+                "Опыт работы": self._flatten_experience(resume_json.get("experience", [])),
+                "Ключевые навыки": ", ".join(resume_json.get("skill_set", [])) or "Не указаны",
+                "Контакты": self._extract_contacts(resume_json),
+                "Ссылка на резюме": resume_json.get("alternate_url", ""),
+                "Обновлено": resume_json.get("updated_at", "").replace("T", " ").split(".")[0],
+            }
+
+            # Добавляем общее количество лет опыта, если доступно
+            total_exp = resume_json.get("total_experience")
+            if isinstance(total_exp, dict):
+                months = total_exp.get("months", 0)
+                years = months // 12
+                result["Общий опыт (лет)"] = years
+            else:
+                result["Общий опыт (лет)"] = 0
+
+            return result
+
+        except Exception as e:
+            log.error(f"[FORMAT] Ошибка при форматировании резюме: {e}", exc_info=True)
+            raise
+
+    def extract_experience_text(self, resume_json: Dict[str, Any]) -> str:
+        """
+        Извлекает текстовое описание опыта работы для последующего анализа через AI.
+
+        :param resume_json: raw резюме
+        :return: объединённый текст всех описаний рабочих позиций
+        """
+        try:
+            descriptions = []
+            for exp in resume_json.get("experience", []):
+                desc = exp.get("description", "")
+                if desc:
+                    descriptions.append(desc)
+
+            return "\n".join(descriptions)
+
+        except Exception as e:
+            log.warning(f"[AI] Не удалось извлечь опыт работы для AI: {e}")
+            return ""
+
+    def _flatten_experience(self, experience_list: List[Dict[str, Any]]) -> str:
+        """
+        Превращает массив опыта в читаемую строку.
+
+        :param experience_list: список записей об опыте
+        :return: строка типа "ООО Компания — 2 года"
+        """
+        try:
+            lines = []
+            for exp in experience_list:
+                company = exp.get("company", "Без названия")
+                position = exp.get("position", "Не указано")
+                start = exp.get("start", "")[:4]
+                end = exp.get("end", "")[:4] if exp.get("end") else "наст. время"
+                line = f"{company} — {position} — {start}–{end}"
+                lines.append(line)
+            return "\n".join(lines)
+        except Exception as e:
+            log.warning(f"[FLATTEN] Ошибка при форматировании опыта: {e}")
+            return "Ошибка форматирования"
+
+    def _extract_contacts(self, resume_json: Dict[str, Any]) -> str:
+        """
+        Извлекает контактную информацию из резюме.
+
+        :param resume_json: raw резюме
+        :return: строка с email и телефоном
+        """
+        try:
+            contact_info = []
+            contacts = resume_json.get("contact", [])
+            for contact in contacts:
+                contact_type = contact.get("type", {}).get("name", "").lower()
+                if contact_type == "эл. почта":
+                    value = contact.get("value", "").strip()
+                    if value:
+                        contact_info.append(f"Email: {value}")
+                elif "телефон" in contact_type:
+                    value = contact.get("value", {}).get("formatted", "").strip()
+                    if value:
+                        contact_info.append(f"Телефон: {value}")
+
+            return "\n".join(contact_info) if contact_info else "Нет контактов"
+        except Exception as e:
+            log.warning(f"[CONTACTS] Ошибка при извлечении контактов: {e}")
+            return "Ошибка извлечения"
+
+    def _extract_salary(self, resume_json: Dict[str, Any]) -> str:
+        """
+        Извлекает желаемую зарплату из резюме.
+
+        :param resume_json: raw резюме
+        :return: строка вида "150 000 RUR"
+        """
+        salary = resume_json.get("salary")
+        if not salary or not isinstance(salary, dict):
+            return "Не указана"
+
+        amount = salary.get("amount")
+        currency = salary.get("currency", "")
+        if amount is None:
+            return "Не указана"
+
+        return f"{amount} {currency}".strip()
