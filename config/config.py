@@ -18,6 +18,13 @@ class Config:
     REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD")
     REDIS_KEY_PREFIX: str = os.getenv("REDIS_KEY_PREFIX", "hh_app_")
 
+    # === PostgreSQL Configuration ===
+    DB_NAME: str = os.getenv("DB_NAME", "HH-Resume-parser_database")
+    DB_USER: str = os.getenv("DB_USER", "HH-Resume-parser_user")
+    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "12345678")
+    DB_HOST: str = os.getenv("DB_HOST", "localhost")
+    DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
+    
     @classmethod
     def get_hh_tokens(cls) -> dict:
         """Возвращает словарь с токенами HH"""
