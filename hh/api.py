@@ -192,6 +192,32 @@ def get_company_vacancies(access_token: str, employer_id: str) -> List[Dict[str,
 
     return all_vacancies
 
+def get_vacancy_negotiations(access_token: str, vacancy_id: str) -> Dict[str, int]:
+    """
+    Получает количество откликов по конкретной вакансии.
+    Возвращает словарь: {'total': total, 'unread': unread}
+    """
+    url = f"https://api.hh.ru/negotiations?vacancy_id={vacancy_id}"
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'User-Agent': 'HH-User-Agent'
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+        collections = data.get("collections", [])
+        total = sum(coll["counters"]["total"] for coll in collections)
+        unread = sum(coll["counters"]["with_updates"] for coll in collections)
+
+        return {"total": total, "unread": unread}
+
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Не удалось получить отклики для вакансии {vacancy_id}: {e}")
+        return {"total": 0, "unread": 0}
+
 def get_manager_id(access_token: str) -> Optional[str]:
     url = "https://api.hh.ru/me" 
     headers = {
@@ -226,7 +252,9 @@ def get_full_resume(resume_id: str, access_token: str, account_num: int, max_ret
         try:
             response = requests.get(url, headers=headers)
             response.raise_for_status()
+            print("AAAAAAAAAAAAAAAA", progress_callback)
             if progress_callback:
+                print("&&&&&&&&&")
                 progress_callback(1)
             return response.json()
         except requests.exceptions.RequestException as e:

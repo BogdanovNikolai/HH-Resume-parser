@@ -38,15 +38,16 @@
   <div id="progressInner" class="progress-inner"></div>
 </div>
 <div id="percent">0%</div>
-<a id="downloadLink" href="/download">📥 Скачать Excel</a>
+<a id="downloadLink" href="/download/${task_id}">📥 Скачать Excel</a>
 
 <script>
+  const task_id = "{{ task_id }}";
+
   function updateProgress() {
-    fetch('/progress').then(r => r.json()).then(data => {
+    fetch(`/progress/${task_id}`).then(r => r.json()).then(data => {
       const percent = data.percent || 0;
       document.getElementById('percent').textContent = percent + '%';
 
-      // Меняем текст заголовка
       const title = document.getElementById('stepTitle');
       if (data.step === 'hh') {
         title.textContent = 'Идёт загрузка резюме с HeadHunter';
@@ -54,17 +55,22 @@
         title.textContent = 'Идёт анализ через нейросеть...';
       }
 
-      // Обновляем ширину прогресса
       document.getElementById('progressInner').style.width = percent + '%';
 
       if (data.status === 'готово') {
-        document.getElementById('downloadLink').style.display = 'block';
+        const link = document.getElementById('downloadLink');
+        link.href = `/download/${task_id}`;
+        link.style.display = 'inline-block';
       } else if (data.status === 'ошибка') {
         document.getElementById('percent').textContent = 'Ошибка';
         document.getElementById('percent').style.color = 'red';
       } else {
         setTimeout(updateProgress, 1000);
       }
+    }).catch(err => {
+      console.error("Ошибка при получении прогресса:", err);
+      document.getElementById('percent').textContent = 'Ошибка подключения';
+      document.getElementById('percent').style.color = 'red';
     });
   }
 

@@ -3,7 +3,7 @@ import pandas as pd
 from typing import List, Dict, Any
 from utils.ai_evaluator import evaluate_candidate_match
 from progress import progress_lock, global_progress
-
+from redis_client import redis_client
 
 def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -87,9 +87,10 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
 
 def append_resumes_to_excel(
     resumes_data: Dict[str, Any],
+    deepseek_api_key: str,
     filename: str = "resumes_output.xlsx",
     description_input: str = "",
-    deepseek_api_key: str = ""
+    task_id: str = None  # ← Теперь передаём task_id
 ) -> None:
     items = resumes_data.get("items", [])
     if not items:
@@ -97,10 +98,13 @@ def append_resumes_to_excel(
         return
 
     clean_data = []
-    with progress_lock:
-        global_progress["total_ai"] = len(items)
 
-    for item in items:
+    # === Если есть task_id — инициализируем шаг AI и total_ai в Redis ===
+    if task_id:
+        redis_client.update_progress(task_id, "step", "ai")
+        redis_client.update_progress(task_id, "total_ai", len(items))
+
+    for idx, item in enumerate(items):
         resume_data = prepare_resume_data(item)
 
         candidate_exp = "\n".join([
@@ -109,16 +113,18 @@ def append_resumes_to_excel(
 
         match_percent = None
         explanation = "Не оценивалось"
+        print("!!!!", deepseek_api_key)
         if description_input and deepseek_api_key and candidate_exp:
+            print(1)
             match_percent, explanation = evaluate_candidate_match(candidate_exp, description_input, deepseek_api_key)
 
         resume_data["Соответствие (%)"] = match_percent
         resume_data["Заключение"] = explanation
         clean_data.append(resume_data)
 
-        # === Увеличиваем AI-прогресс ===
-        with progress_lock:
-            global_progress["current_ai"] += 1
+        # === Увеличиваем AI-прогресс в Redis ===
+        if task_id:
+            redis_client.increment_progress(task_id, "current_ai")
 
     df = pd.DataFrame(clean_data)
     try:

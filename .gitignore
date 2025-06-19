@@ -202,3 +202,5 @@ utils/database.py
 .env1
 hh_token/
 merge_files.py
+.env.old
+test.py
