@@ -1,9 +1,44 @@
-import os
 import pandas as pd
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union, Callable
 from utils.ai_evaluator import evaluate_candidate_match
-from progress import progress_lock, global_progress
 from redis_client import redis_client
+
+def safe_get(data: Any, *keys: Union[str, int, Callable], default: Any = "Не указано") -> Any:
+    """
+    Безопасно извлекает значение из вложенных словарей/списков по цепочке ключей.
+    
+    Примеры:
+        safe_get(resume, 'first_name') → "Иван"
+        safe_get(resume, 'gender', 'name') → "Мужской"
+        safe_get(resume, 'experience', 0, 'company') → "DHL Express"
+        safe_get(resume, 'salary', 'amount', default=0) → 1500
+        safe_get(resume, 'area', 'name', default="Не указан") → "Москва"
+
+    :param data: исходные данные (dict, list, object)
+    :param keys: последовательность ключей или индексов для извлечения
+    :param default: значение по умолчанию
+    :return: значение по цепочке ключей или default
+    """
+    from functools import reduce
+
+    def _get_value(current: Any, key: Union[str, int, Callable]) -> Any:
+        if isinstance(key, str):
+            if isinstance(current, dict):
+                return current.get(key)
+            else:
+                return None
+        elif isinstance(key, int):
+            if isinstance(current, list) and len(current) > key:
+                return current[key]
+            else:
+                return None
+        elif callable(key):
+            return key(current)
+        else:
+            return None
+
+    result = reduce(_get_value, keys, data)
+    return result if result is not None else default
 
 def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -85,14 +120,14 @@ def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def append_resumes_to_excel(
-    resumes_data: Dict[str, Any],
-    deepseek_api_key: str,
+def save_resumes_to_excel(
+    items: List[Dict],
     filename: str = "resumes_output.xlsx",
     description_input: str = "",
-    task_id: str = None  # ← Теперь передаём task_id
-) -> None:
-    items = resumes_data.get("items", [])
+    deepseek_api_key: str = "",
+    task_id: str = None,
+    is_new: bool = False
+):
     if not items:
         print("[INFO] Нет данных для записи.")
         return
@@ -105,22 +140,85 @@ def append_resumes_to_excel(
         redis_client.update_progress(task_id, "total_ai", len(items))
 
     for idx, item in enumerate(items):
-        resume_data = prepare_resume_data(item)
+        if is_new:
+            resume = safe_get(item, "resume", default={})
+            if not isinstance(resume, dict):
+                print(f"[WARNING] Пропущено: резюме не является словарём — {resume}")
+                continue
 
-        candidate_exp = "\n".join([
-            exp.get("description", "") for exp in item.get("experience", [])
-        ])
+            # --- Имя, фамилия, отчество ---
+            first_name = safe_get(resume, "first_name")
+            last_name = safe_get(resume, "last_name")
+            middle_name = safe_get(resume, "middle_name")
 
-        match_percent = None
-        explanation = "Не оценивалось"
-        print("!!!!", deepseek_api_key)
-        if description_input and deepseek_api_key and candidate_exp:
-            print(1)
-            match_percent, explanation = evaluate_candidate_match(candidate_exp, description_input, deepseek_api_key)
+            # --- Пол ---
+            gender_name = safe_get(resume, "gender", "name")
 
-        resume_data["Соответствие (%)"] = match_percent
-        resume_data["Заключение"] = explanation
-        clean_data.append(resume_data)
+            # --- Возраст ---
+            age = safe_get(resume, "age")
+
+            # --- Должность ---
+            title = safe_get(resume, "title")
+
+            # --- Город ---
+            area_name = safe_get(resume, "area", "name")
+
+            # --- Зарплата ---
+            salary_amount = safe_get(resume, "salary", "amount")
+            salary_currency = safe_get(resume, "salary", "currency")
+            salary_expectation = f"{salary_amount} {salary_currency}".strip() or "Не указана"
+
+            # --- Опыт работы ---
+            experience_list = safe_get(resume, "experience", default=[])
+            experience_str = "\n".join([
+                f"{safe_get(exp, 'company', default='Без названия')} — "
+                f"{safe_get(exp, 'position')} — "
+                f"{safe_get(exp, 'start', default='').split('-')[0]} — "
+                f"{safe_get(exp, 'end', default='').split('-')[0] if safe_get(exp, 'end') else 'наст. время'}"
+                for exp in experience_list
+            ]) or "Нет опыта"
+
+            # --- Ключевые навыки ---
+            skill_set = safe_get(resume, "skill_set", default=[])
+            skills = ", ".join(skill_set) if isinstance(skill_set, list) and skill_set else "Не указаны"
+
+            # --- Ссылка на резюме ---
+            alternate_url = safe_get(resume, "alternate_url")
+
+            # --- Время обновления ---
+            updated_at = safe_get(resume, "updated_at")
+
+            row = {
+                "ID Резюме": safe_get(resume, "id"),
+                "Имя": first_name,
+                "Фамилия": last_name,
+                "Отчество": middle_name,
+                "Пол": gender_name,
+                "Возраст": age,
+                "Желаемая ЗП": salary_expectation,
+                "Должность": title,
+                "Город": area_name,
+                "Опыт работы": experience_str,
+                "Ключевые навыки": skills,
+                "Ссылка": alternate_url,
+                "Обновлено": updated_at
+            }
+        else:
+            resume_data = prepare_resume_data(item)
+            candidate_exp = "\n".join([
+                exp.get("description", "") for exp in item.get("experience", [])
+            ])
+
+            match_percent = None
+            explanation = "Не оценивалось"
+            if description_input and deepseek_api_key and candidate_exp:
+                match_percent, explanation = evaluate_candidate_match(candidate_exp, description_input, deepseek_api_key)
+
+            resume_data["Соответствие (%)"] = match_percent
+            resume_data["Заключение"] = explanation
+            row = resume_data
+
+        clean_data.append(row)
 
         # === Увеличиваем AI-прогресс в Redis ===
         if task_id:
@@ -130,122 +228,5 @@ def append_resumes_to_excel(
     try:
         df.to_excel(filename, index=False, engine='openpyxl')
         print(f"[SUCCESS] Успешно записано {len(df)} записей в '{filename}'")
-    except Exception as e:
-        print(f"[ERROR] Не удалось сохранить файл: {e}")
-
-
-def save_new_resumes_to_excel(items: List[Dict[str, Any]], filename: str = "new_resumes.xlsx"):
-    """
-    Сохраняет новые резюме из откликов в Excel-файл.
-    Безопасно обрабатывает все поля через try/except.
-    
-    :param items: Список элементов из /negotiations/response
-    :param filename: Имя файла для сохранения
-    """
-    print(f"[INFO] Получено {len(items)} элементов для обработки")
-    processed_data = []
-
-    for item in items:
-        resume = item.get("resume", {})
-        if not isinstance(resume, dict):
-            continue
-
-        try:
-            resume_id = resume.get("id", "Не указано")
-        except Exception:
-            resume_id = "Не найдено"
-
-        try:
-            first_name = resume.get("first_name", "Не указано")
-        except Exception:
-            first_name = "Не найдено"
-
-        try:
-            last_name = resume.get("last_name", "Не указано")
-        except Exception:
-            last_name = "Не найдено"
-
-        try:
-            gender = resume.get("gender", {}).get("name", "Не указано")
-        except Exception:
-            gender = "Не найдено"
-
-        try:
-            age = resume.get("age", "Не указано")
-        except Exception:
-            age = "Не найдено"
-
-        try:
-            salary_amount = resume.get("salary", {}).get("amount", "Не указано")
-            salary_currency = resume.get("salary", {}).get("currency", "")
-            salary = f"{salary_amount} {salary_currency}".strip() or "Не указано"
-        except Exception:
-            salary = "Не найдено"
-
-        try:
-            title = resume.get("title", "Не указано")
-        except Exception:
-            title = "Не найдено"
-
-        try:
-            area = resume.get("area", {}).get("name", "Не указано")
-        except Exception:
-            area = "Не найдено"
-
-        try:
-            experience_list = resume.get("experience", [])
-            if not isinstance(experience_list, list):
-                experience_list = []
-
-            experience = "\n".join([
-                f"{exp.get('position', 'Не указано')} в "
-                f"{exp.get('employer', {}).get('name', 'Не указано')} с "
-                f"{exp.get('start', 'Не указано')} по "
-                f"{exp.get('end', 'Не указано')}"
-                for exp in experience_list
-                if isinstance(exp, dict)
-            ]) or "Нет опыта"
-        except Exception:
-            experience = "Не найдено"
-
-        try:
-            skills = ", ".join(resume.get("skills", [])) or "Не указаны"
-        except Exception:
-            skills = "Не найдено"
-
-        try:
-            alternate_url = resume.get("alternate_url", "Не указана")
-        except Exception:
-            alternate_url = "Не найдено"
-
-        try:
-            updated_at = resume.get("updated_at", "Не указано")
-        except Exception:
-            updated_at = "Не найдено"
-
-        row = {
-            "ID Резюме": resume_id,
-            "Имя": first_name,
-            "Фамилия": last_name,
-            "Пол": gender,
-            "Возраст": age,
-            "Желаемая ЗП": salary,
-            "Должность": title,
-            "Город": area,
-            "Опыт работы": experience,
-            "Навыки": skills,
-            "Ссылка": alternate_url,
-            "Обновлено": updated_at,
-        }
-
-        processed_data.append(row)
-        
-    print(f"[INFO] Успешно обработано {len(processed_data)} резюме")
-
-    # Создаем DataFrame и сохраняем в Excel
-    df = pd.DataFrame(processed_data)
-    try:
-        df.to_excel(filename, index=False, engine="openpyxl")
-        print(f"[SUCCESS] Новые резюме сохранены в файл '{filename}'")
     except Exception as e:
         print(f"[ERROR] Не удалось сохранить файл: {e}")
