@@ -320,7 +320,7 @@ def get_new_responses(vacancy_id: str, access_token: str) -> Dict[str, Any]:
 
 # === findResumes с поддержкой нескольких аккаунтов ===
 @auto_refresh_or_switch_account
-def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100, area_id: str = "113", salary_to: int = None, progress_callback: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
+def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool = False, per_page: int = 100, limit: int = 100, area_id: List[str] = ["113"], salary_to: int = None, progress_callback: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
     base_url = 'https://api.hh.ru/resumes' 
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -349,6 +349,7 @@ def findResumes(*queries, access_token: str, account_num: int = 1, debug: bool =
             params[param_prefix] = text
 
     params['area'] = area_id
+    params['relocation'] = 'living'
     if salary_to:
         params['salary_to'] = salary_to
     # params['label'] = "only_with_salary"

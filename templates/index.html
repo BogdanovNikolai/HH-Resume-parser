@@ -138,12 +138,20 @@ function updateLimitCounter() {
     <input type="text" id="keywords" name="keywords" placeholder="Например: Python разработчик" required />
 
     <label for="area">Регион</label>
-    <select id="area" name="area" class="form-control">
+    <select id="area" name="area" class="form-control" multiple>
       <option value="">-- Выберите регион --</option>
       {% for area in areas %}
         <option value="{{ area.id }}">{{ area.name }}</option>
       {% endfor %}
     </select>
+
+    <script>
+      new TomSelect("#area", {
+        plugins: ['remove_button'],
+        maxItems: 10,
+        placeholder: "Выберите до 10 регионов",
+      });
+    </script>
 
     <label for="salary_to">Верхняя граница зарплаты</label>
     <input type="number" id="salary_to" name="salary_to" placeholder="Например: 100000" />
