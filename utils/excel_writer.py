@@ -1,12 +1,30 @@
+"""
+Модуль `excel_writer` содержит утилиты для подготовки данных о резюме и сохранения их в формате Excel (.xlsx).
+
+Основные возможности:
+- безопасное извлечение вложенных данных через `safe_get`,
+- подготовка данных о резюме для отображения,
+- запись результатов в Excel с поддержкой AI-оценки соответствия.
+
+Functions:
+    safe_get: безопасно извлекает значение по цепочке ключей.
+    prepare_resume_data: преобразует raw данные резюме в удобный формат.
+    save_resumes_to_excel: сохраняет список резюме в Excel, с возможностью AI-анализа.
+"""
+
 import pandas as pd
 from typing import List, Dict, Any, Union, Callable
+from functools import reduce
+
+# === Внешние зависимости ===
 from utils.ai_evaluator import evaluate_candidate_match
 from redis_client import redis_client
+
 
 def safe_get(data: Any, *keys: Union[str, int, Callable], default: Any = "Не указано") -> Any:
     """
     Безопасно извлекает значение из вложенных словарей/списков по цепочке ключей.
-    
+
     Примеры:
         safe_get(resume, 'first_name') → "Иван"
         safe_get(resume, 'gender', 'name') → "Мужской"
@@ -14,24 +32,19 @@ def safe_get(data: Any, *keys: Union[str, int, Callable], default: Any = "Не �
         safe_get(resume, 'salary', 'amount', default=0) → 1500
         safe_get(resume, 'area', 'name', default="Не указан") → "Москва"
 
-    :param data: исходные данные (dict, list, object)
-    :param keys: последовательность ключей или индексов для извлечения
-    :param default: значение по умолчанию
-    :return: значение по цепочке ключей или default
-    """
-    from functools import reduce
+    Args:
+        data (Any): исходные данные (dict, list, object).
+        keys (Union[str, int, Callable]): последовательность ключей или индексов для извлечения.
+        default (Any): значение по умолчанию, если путь не найден.
 
+    Returns:
+        Any: значение по цепочке ключей или default.
+    """
     def _get_value(current: Any, key: Union[str, int, Callable]) -> Any:
         if isinstance(key, str):
-            if isinstance(current, dict):
-                return current.get(key)
-            else:
-                return None
+            return current.get(key) if isinstance(current, dict) else None
         elif isinstance(key, int):
-            if isinstance(current, list) and len(current) > key:
-                return current[key]
-            else:
-                return None
+            return current[key] if isinstance(current, list) and len(current) > key else None
         elif callable(key):
             return key(current)
         else:
@@ -40,10 +53,18 @@ def safe_get(data: Any, *keys: Union[str, int, Callable], default: Any = "Не �
     result = reduce(_get_value, keys, data)
     return result if result is not None else default
 
+
 def prepare_resume_data(resume: Dict[str, Any]) -> Dict[str, Any]:
     """
     Преобразует одно резюме в нужный формат.
-    Добавляет ключевые поля: опыт, зарплата, контакты и др.
+
+    Добавляет ключевые поля: опыт, зарплата, контакты и другие метаданные.
+
+    Args:
+        resume (Dict[str, Any]): сырое резюме из API HeadHunter.
+
+    Returns:
+        Dict[str, Any]: структурированное представление резюме.
     """
     title = resume.get("title", "Не указана")
 
@@ -128,6 +149,19 @@ def save_resumes_to_excel(
     task_id: str = None,
     is_new: bool = False
 ):
+    """
+    Сохраняет список резюме в Excel-файл.
+
+    Может также добавлять оценку соответствия вакансии при наличии описания и API-ключа.
+
+    Args:
+        items (List[Dict]): список резюме.
+        filename (str): имя выходного файла.
+        description_input (str): описание вакансии для анализа.
+        deepseek_api_key (str): ключ к DeepSeek API.
+        task_id (Optional[str]): ID задачи для обновления прогресса в Redis.
+        is_new (bool): флаг новых резюме из HH API.
+    """
     if not items:
         print("[INFO] Нет данных для записи.")
         return

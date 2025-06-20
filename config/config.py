@@ -1,3 +1,16 @@
+"""
+Модуль конфигурации проекта.
+
+Содержит класс Config, предоставляющий доступ к настройкам приложения через переменные окружения.
+Поддерживает конфигурацию Redis, PostgreSQL, API-ключей, логгирования, таймаутов и других параметров.
+
+Classes:
+    Config: основной класс конфигурации с атрибутами и методами для получения и проверки настроек.
+
+Functions:
+    Нет функций верхнего уровня. Все методы реализованы как @classmethod внутри класса Config.
+"""
+
 import os
 import logging
 from typing import Optional, List
@@ -6,12 +19,44 @@ from dotenv import load_dotenv
 # Загрузка переменных из .env
 load_dotenv()
 
+
 class Config:
     """
     Класс конфигурации проекта.
-    Содержит настройки для Redis, API и Flask.
+
+    Содержит статические атрибуты, представляющие собой настройки приложения,
+    загружаемые из переменных окружения (или использующие значения по умолчанию).
+
+    Attributes:
+        REDIS_HOST (str): хост Redis.
+        REDIS_PORT (int): порт Redis.
+        REDIS_DB (int): номер базы данных Redis.
+        REDIS_PASSWORD (Optional[str]): пароль от Redis (если используется).
+        REDIS_KEY_PREFIX (str): префикс ключей в Redis.
+
+        DB_NAME (str): имя PostgreSQL базы данных.
+        DB_USER (str): пользователь PostgreSQL.
+        DB_PASSWORD (str): пароль пользователя PostgreSQL.
+        DB_HOST (str): хост PostgreSQL.
+        DB_PORT (int): порт PostgreSQL.
+
+        DEEPSEEK_API_KEY (str): API-ключ для DeepSeek.
+
+        SECRET_KEY (str): секретный ключ Flask-приложения.
+
+        LOG_LEVEL (str): уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        LOG_FILE (Optional[str]): путь к файлу логов (если указан).
+
+        OUTPUT_DIR (str): директория для вывода результатов.
+        AREAS_CACHE_PATH (str): путь к кэш-файлу регионов.
+
+        REQUEST_TIMEOUT (int): максимальное время ожидания запроса (в секундах).
+        MAX_RETRIES (int): максимальное число повторов запроса.
+        TTL_HOURS (int): время жизни кэшированных данных (в часах).
+
+        DEFAULT_EMPLOYER_ID (str): ID работодателя по умолчанию.
     """
-    
+
     # === Redis Configuration ===
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
@@ -25,10 +70,15 @@ class Config:
     DB_PASSWORD: str = os.getenv("DB_PASSWORD", "12345678")
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
     DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
-    
+
     @classmethod
     def get_hh_tokens(cls) -> dict:
-        """Возвращает словарь с токенами HH"""
+        """
+        Возвращает словарь с токенами HH.
+
+        Returns:
+            dict: словарь в формате {f"CLIENT_ID{i}": token}.
+        """
         return {
             f"CLIENT_ID{i}": os.getenv(f"CLIENT_ID{i}")
             for i in range(1, 3)
@@ -37,7 +87,12 @@ class Config:
 
     @classmethod
     def get_access_tokens(cls) -> List[str]:
-        """Возвращает список ACCESS_TOKEN'ов"""
+        """
+        Возвращает список ACCESS_TOKEN'ов.
+
+        Returns:
+            List[str]: список строковых значений ACCESS_TOKEN.
+        """
         return [
             os.getenv(f"ACCESS_TOKEN{i}")
             for i in range(1, 3)
@@ -63,11 +118,18 @@ class Config:
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
     TTL_HOURS: int = int(os.getenv("TTL_HOURS", "24"))
 
-    DEFAULT_EMPLOYER_ID: str = os.getenv("DEFAULT_EMPLOYER_ID", 104309)
+    DEFAULT_EMPLOYER_ID: str = os.getenv("DEFAULT_EMPLOYER_ID", "104309")
 
     @classmethod
     def setup_logger(cls):
-        """Настройка глобального логгера"""
+        """
+        Настройка глобального логгера.
+
+        Создаёт логгер с указанным уровнем, форматом сообщений и выводом в консоль и (опционально) файл.
+
+        Returns:
+            logging.Logger: настроенный объект логгера.
+        """
         log_level = getattr(logging, cls.LOG_LEVEL.upper(), logging.INFO)
 
         logger = logging.getLogger(__name__)
@@ -98,12 +160,18 @@ class Config:
 
     @classmethod
     def validate_required(cls):
-        """Проверяет наличие обязательных переменных"""
+        """
+        Проверяет наличие обязательных переменных окружения.
+
+        Raises:
+            ValueError: если какие-либо обязательные переменные отсутствуют.
+        """
         required_vars = ["SECRET_KEY", "DEEPSEEK_API_KEY"]
         missing = [var for var in required_vars if not getattr(cls, var)]
-        
+
         if missing:
             raise ValueError(f"Отсутствуют обязательные переменные: {missing}")
+
 
 # При инициализации проверяем обязательные поля
 Config.validate_required()

@@ -1,8 +1,12 @@
 """
-data_manager/resume_processor.py
-
-Модуль содержит класс ResumeProcessor — утилиту для обработки и форматирования
+Модуль `resume_processor` содержит класс ResumeProcessor — утилиту для обработки и форматирования
 сырых данных о резюме, полученных из HeadHunter API.
+
+Classes:
+    ResumeProcessor: класс для преобразования и подготовки данных о резюме к дальнейшей обработке и хранению.
+
+Functions:
+    Нет функций верхнего уровня.
 """
 
 from typing import Dict, Any, List, Optional
@@ -13,17 +17,27 @@ class ResumeProcessor:
     """
     Класс для обработки и форматирования резюме из HeadHunter API.
 
-    Методы:
-    - format_resume() — преобразует raw JSON в словарь с полями для таблицы.
-    - extract_experience_text() — извлекает текстовый опыт для AI-анализа.
-    - flatten_experience() — превращает массив опыта в строку.
-    - extract_contacts() — собирает контактную информацию.
+    Предоставляет методы для преобразования raw JSON-ответов HH в структурированные данные,
+    пригодные для отображения, анализа и сохранения в БД.
+
+    Attributes:
+        Нет публичных атрибутов. Используются внутренние методы и логирование.
     """
 
     def __init__(self):
+        """Инициализирует экземпляр ResumeProcessor."""
         log.info("ResumeProcessor успешно инициализирован.")
 
     def to_db_format(self, formatted_resume: dict) -> dict:
+        """
+        Преобразует форматированное резюме в вид, подходящий для хранения в БД.
+
+        Args:
+            formatted_resume (dict): словарь с данными резюме после вызова format_resume().
+
+        Returns:
+            dict: данные в формате, готовом к записи в базу данных.
+        """
         return {
             "resume_id": formatted_resume["ID Резюме"],
             "first_name": formatted_resume["Имя"],
@@ -31,7 +45,7 @@ class ResumeProcessor:
             "middle_name": formatted_resume["Отчество"],
             "gender": formatted_resume["Пол"],
             "age": formatted_resume["Возраст"],
-            "salary": formatted_resume["Желаемая ЗП"],  # Используем 'salary', а не 'desired_salary'
+            "salary": formatted_resume["Желаемая ЗП"],
             "title": formatted_resume["Должность"],
             "area": formatted_resume["Город"],
             "experience": formatted_resume["Опыт работы"],
@@ -39,17 +53,36 @@ class ResumeProcessor:
             "contacts": formatted_resume["Контакты"],
             "link": formatted_resume["Ссылка на резюме"],
             "updated_at": formatted_resume["Обновлено"],
-            "total_experience": formatted_resume.get("Общий опыт (лет)"),  # Используем 'total_experience'
+            "total_experience": formatted_resume.get("Общий опыт (лет)"),
             "match_percent": formatted_resume.get("match_percent"),
             "explanation": formatted_resume.get("explanation")
         }
-    
+
     def format_resume(self, resume_json: Dict[str, Any], description_input: Optional[str] = None) -> Dict[str, Any]:
         """
         Преобразует raw резюме из HH API в структурированный вид для отображения.
 
-        :param resume_json: сырые данные о резюме из HH API
-        :return: словарь с ключами: "Позиция", "Регион", "Возраст", "Опыт", и т.д.
+        Args:
+            resume_json (Dict[str, Any]): сырые данные о резюме из HH API.
+            description_input (Optional[str]): описание вакансии для AI-оценки (не используется напрямую здесь).
+
+        Returns:
+            Dict[str, Any]: словарь с ключами:
+                - ID Резюме
+                - Имя
+                - Фамилия
+                - Отчество
+                - Пол
+                - Возраст
+                - Желаемая ЗП
+                - Должность
+                - Город
+                - Опыт работы
+                - Ключевые навыки
+                - Контакты
+                - Ссылка на резюме
+                - Обновлено
+                - Общий опыт (лет)
         """
         try:
             result = {
@@ -88,8 +121,11 @@ class ResumeProcessor:
         """
         Извлекает текстовое описание опыта работы для последующего анализа через AI.
 
-        :param resume_json: raw резюме
-        :return: объединённый текст всех описаний рабочих позиций
+        Args:
+            resume_json (Dict[str, Any]): raw резюме.
+
+        Returns:
+            str: объединённый текст всех описаний рабочих позиций.
         """
         try:
             descriptions = []
@@ -108,8 +144,11 @@ class ResumeProcessor:
         """
         Превращает массив опыта в читаемую строку.
 
-        :param experience_list: список записей об опыте
-        :return: строка типа "ООО Компания — 2 года"
+        Args:
+            experience_list (List[Dict[str, Any]]): список записей об опыте.
+
+        Returns:
+            str: строка типа "ООО Компания — 2 года".
         """
         try:
             lines = []
@@ -129,8 +168,11 @@ class ResumeProcessor:
         """
         Извлекает контактную информацию из резюме.
 
-        :param resume_json: raw резюме
-        :return: строка с email и телефоном
+        Args:
+            resume_json (Dict[str, Any]): raw резюме.
+
+        Returns:
+            str: строка с email и телефоном.
         """
         try:
             contact_info = []
@@ -155,8 +197,11 @@ class ResumeProcessor:
         """
         Извлекает желаемую зарплату из резюме.
 
-        :param resume_json: raw резюме
-        :return: строка вида "150 000 RUR"
+        Args:
+            resume_json (Dict[str, Any]): raw резюме.
+
+        Returns:
+            str: строка вида "150 000 RUR".
         """
         salary = resume_json.get("salary")
         if not salary or not isinstance(salary, dict):

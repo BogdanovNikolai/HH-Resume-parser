@@ -1,13 +1,37 @@
+"""
+Модуль `ai_evaluator` содержит утилиты для оценки соответствия кандидата вакансии с помощью AI.
+
+Функция `evaluate_candidate_match` использует API DeepSeek для анализа текста опыта работы кандидата
+и описания вакансии, возвращая процент соответствия и краткое объяснение.
+
+Functions:
+    evaluate_candidate_match: оценивает соответствие кандидата вакансии через AI.
+"""
+
 import requests
 from typing import Tuple
 
+
 def evaluate_candidate_match(candidate_exp: str, vacancy_description: str, api_key: str) -> Tuple[float, str]:
     """
-    Сравнивает опыт кандидата с требованиями вакансии.
-    
-    Возвращает:
-        - Процент соответствия (0–100)
-        - Краткое объяснение (до 250 символов)
+    Оценивает соответствие кандидата вакансии на основе анализа опыта работы и описания вакансии.
+
+    Args:
+        candidate_exp (str): опыт работы кандидата (из резюме).
+        vacancy_description (str): описание вакансии.
+        api_key (str): API-ключ для доступа к DeepSeek API.
+
+    Returns:
+        Tuple[float, str]: 
+            - Процент соответствия (0–100),
+            - Краткое объяснение (до 250 символов).
+
+    Raises:
+        Исключения обрабатываются локально, при ошибке возвращается (0.0, "Ошибка...").
+
+    Пример использования:
+        >>> evaluate_candidate_match("Опыт работы 3 года в продажах", "Требуется менеджер по продажам", "your_api_key")
+        (75.0, "Кандидат имеет опыт продаж, но не указано знание CRM.")
     """
 
     if not candidate_exp or not vacancy_description:
@@ -49,10 +73,9 @@ def evaluate_candidate_match(candidate_exp: str, vacancy_description: str, api_k
         response.raise_for_status()
         content = response.json()['choices'][0]['message']['content'].strip()
 
-        # Парсим ответ
+        # Парсим результат от модели
         parts = content.split(maxsplit=1)
         percent = float(parts[0].replace("%", "").strip())
-
         explanation = parts[1] if len(parts) > 1 else ""
 
         return round(percent, 1), explanation[:250]

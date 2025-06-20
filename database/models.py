@@ -1,9 +1,50 @@
+"""
+Модуль `models` содержит SQLAlchemy-модели для работы с базой данных PostgreSQL.
+
+Эти модели используются как для ORM-операций, так и для генерации миграций через Alembic.
+
+Classes:
+    Resume: модель для хранения данных о резюме.
+    Task: модель для отслеживания фоновых задач и их прогресса.
+"""
+
 from sqlalchemy import Column, String, Integer, Float, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .base import Base
 
+
 class Resume(Base):
+    """
+    Модель для хранения информации о резюме.
+
+    Attributes:
+        id (Integer): уникальный ID записи.
+        resume_id (String): ID резюме из HeadHunter.
+        first_name (String): имя соискателя.
+        last_name (String): фамилия соискателя.
+        middle_name (String): отчество соискателя.
+        gender (String): пол.
+        age (Integer): возраст.
+        salary (String): желаемая зарплата.
+        title (String): должность.
+        area (String): город проживания.
+        experience (Text): опыт работы (форматированный).
+        skills (Text): ключевые навыки.
+        contacts (Text): контактная информация.
+        link (String): ссылка на резюме.
+        updated_at (DateTime): дата последнего обновления резюме.
+        match_percent (Float): процент соответствия вакансии.
+        explanation (Text): объяснение AI-оценки.
+        total_experience (Integer): общий опыт в годах.
+        task_id (String): внешний ключ на задачу.
+        vacancy_id (String): ID вакансии, по которой найдено резюме.
+        created_at (DateTime): дата создания записи.
+
+    Relationships:
+        task: связь с моделью Task.
+    """
+
     __tablename__ = 'resumes'
 
     id = Column(Integer, primary_key=True)
@@ -31,6 +72,12 @@ class Resume(Base):
     task = relationship("Task", back_populates="resumes")
 
     def to_dict(self):
+        """
+        Преобразует объект Resume в словарь.
+
+        Returns:
+            Dict[str, Any]: представление резюме в виде словаря.
+        """
         return {
             "id": self.id,
             "resume_id": self.resume_id,
@@ -55,7 +102,26 @@ class Resume(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
+
 class Task(Base):
+    """
+    Модель для отслеживания фоновых задач.
+
+    Attributes:
+        task_id (String): уникальный идентификатор задачи.
+        step (String): текущий этап выполнения ('hh', 'ai').
+        total_hh (Integer): общее количество найденных резюме.
+        current_hh (Integer): количество уже обработанных резюме.
+        total_ai (Integer): количество резюме для оценки AI.
+        current_ai (Integer): количество уже оценённых резюме.
+        status (String): статус задачи ('в процессе', 'готово', 'ошибка').
+        filename (String): имя выходного файла после экспорта.
+        created_at (DateTime): дата создания задачи.
+
+    Relationships:
+        resumes: связь с моделью Resume.
+    """
+
     __tablename__ = 'tasks'
 
     task_id = Column(String, primary_key=True)

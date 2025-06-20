@@ -1,7 +1,31 @@
-﻿from typing import List, Dict, Any, Optional, Callable
+﻿"""
+Модуль `api` содержит реализацию клиентского API для работы с HeadHunter.
+
+Основные возможности:
+- авторизация через OAuth,
+- автоматическое переключение аккаунтов при достижении лимитов,
+- получение данных о вакансиях, откликах и резюме,
+- поддержка пагинации и обработки ошибок.
+
+Functions:
+    auto_refresh_or_switch_account: декоратор для автоматического обновления токена или переключения аккаунта.
+    get_me: получает данные текущего пользователя.
+    get_employer_id: извлекает ID работодателя.
+    get_manager_id: извлекает ID менеджера.
+    get_company_vacancies: получает список вакансий компании.
+    get_vacancy_negotiations: получает количество откликов по вакансии.
+    get_new_responses: получает новые отклики по вакансии.
+    get_resume_limit: получает лимиты на загрузку резюме.
+    get_full_resume: загружает полные данные о резюме.
+    findResumes: выполняет поиск резюме по ключевым словам.
+"""
+
+from typing import List, Dict, Any, Optional, Callable
 import requests
 import time
 import random
+
+# === Внешние зависимости ===
 from config import app_config, log  # Импортируем единый логгер
 
 # === Базовые параметры ===
@@ -11,21 +35,34 @@ USER_AGENT = "HH-User-Agent"
 log.info("Модуль hh.api загружен. Начинаю работу с API HeadHunter.")
 
 
-# === Автоматическое переключение аккаунтов и обновление токенов ===
+# === Декоратор для автоматического переключения аккаунтов и обновления токенов ===
 def auto_refresh_or_switch_account(func):
+    """
+    Декоратор для автоматической обработки ошибок доступа и переключения аккаунтов.
+
+    Если запрос завершается ошибкой 401/403 (токен истёк) или 429 (лимит исчерпан),
+    декоратор либо обновляет токен, либо переключается на следующий аккаунт.
+
+    Args:
+        func (Callable): оборачиваемая функция.
+
+    Returns:
+        Callable: новая версия функции с обработкой ошибок.
+    """
+
     def wrapper(*args, **kwargs):
         max_retries = 3
         current_account = kwargs.get("account_num", 1)
         access_token = kwargs.get("access_token")
-
         log.info(f"[auto_refresh_or_switch_account] Вызов функции {func.__name__} с аккаунтом #{current_account}")
+
         for attempt in range(1, max_retries + 1):
             try:
                 return func(*args, **kwargs)
             except requests.exceptions.HTTPError as e:
                 status_code = e.response.status_code
-                log.warning(f"[auto_refresh_or_switch_account] Ошибка HTTP: {status_code}, попытка {attempt} из {max_retries}")
-
+                log.warning(
+                    f"[auto_refresh_or_switch_account] Ошибка HTTP: {status_code}, попытка {attempt} из {max_retries}")
                 if status_code in (401, 403):
                     log.info(f"Токен аккаунта #{current_account} истёк. Обновляем...")
                     new_token = refresh_access_token(current_account)
@@ -41,11 +78,21 @@ def auto_refresh_or_switch_account(func):
                     log.error(f"[auto_refresh_or_switch_account] Неожиданная ошибка: {e}", exc_info=True)
                     raise
         return None
+
     return wrapper
 
 
 # === Получение данных текущего пользователя ===
 def get_me(access_token: str) -> Dict[str, Any]:
+    """
+    Запрашивает данные текущего пользователя из HH API.
+
+    Args:
+        access_token (str): токен доступа к API.
+
+    Returns:
+        Dict[str, Any]: JSON-ответ с данными пользователя.
+    """
     log.debug("[get_me] Запрашиваю данные текущего пользователя")
     url = f"{BASE_URL}/me"
     headers = {
@@ -63,6 +110,15 @@ def get_me(access_token: str) -> Dict[str, Any]:
 
 
 def get_employer_id(access_token: str) -> Optional[str]:
+    """
+    Извлекает ID работодателя из данных текущего пользователя.
+
+    Args:
+        access_token (str): токен доступа к API.
+
+    Returns:
+        Optional[str]: ID работодателя или None.
+    """
     log.debug("[get_employer_id] Получаю ID работодателя")
     data = get_me(access_token)
     eid = data.get("employer", {}).get("id")
@@ -71,6 +127,15 @@ def get_employer_id(access_token: str) -> Optional[str]:
 
 
 def get_manager_id(access_token: str) -> Optional[str]:
+    """
+    Извлекает ID менеджера из данных текущего пользователя.
+
+    Args:
+        access_token (str): токен доступа к API.
+
+    Returns:
+        Optional[str]: ID менеджера или None.
+    """
     log.debug("[get_manager_id] Получаю ID менеджера")
     data = get_me(access_token)
     mid = data.get("manager", {}).get("id")
@@ -81,6 +146,16 @@ def get_manager_id(access_token: str) -> Optional[str]:
 # === Вакансии и отклики ===
 @auto_refresh_or_switch_account
 def get_company_vacancies(access_token: str, employer_id: str) -> List[Dict]:
+    """
+    Получает список вакансий для указанного работодателя.
+
+    Args:
+        access_token (str): токен доступа к API.
+        employer_id (str): ID работодателя.
+
+    Returns:
+        List[Dict]: список вакансий.
+    """
     log.info(f"[get_company_vacancies] Получаю список вакансий для работодателя {employer_id}")
     url = f"{BASE_URL}/vacancies"
     headers = {
@@ -95,6 +170,16 @@ def get_company_vacancies(access_token: str, employer_id: str) -> List[Dict]:
 
 @auto_refresh_or_switch_account
 def get_vacancy_negotiations(access_token: str, vacancy_id: str) -> Dict[str, int]:
+    """
+    Получает количество откликов по указанной вакансии.
+
+    Args:
+        access_token (str): токен доступа к API.
+        vacancy_id (str): ID вакансии.
+
+    Returns:
+        Dict[str, int]: словарь с количеством откликов и непрочитанных.
+    """
     log.info(f"[get_vacancy_negotiations] Получаю количество откликов по вакансии {vacancy_id}")
     url = f"{BASE_URL}/negotiations"
     headers = {
@@ -117,6 +202,16 @@ def get_vacancy_negotiations(access_token: str, vacancy_id: str) -> Dict[str, in
 
 @auto_refresh_or_switch_account
 def get_new_responses(vacancy_id: str, access_token: str) -> Dict[str, Any]:
+    """
+    Получает новые отклики по указанной вакансии.
+
+    Args:
+        vacancy_id (str): ID вакансии.
+        access_token (str): токен доступа к API.
+
+    Returns:
+        Dict[str, Any]: словарь с найденными откликами.
+    """
     log.info(f"[get_new_responses] Получаю новые отклики по вакансии {vacancy_id}")
     url = f"{BASE_URL}/negotiations/response"
     headers = {
@@ -127,7 +222,6 @@ def get_new_responses(vacancy_id: str, access_token: str) -> Dict[str, Any]:
         "vacancy_id": vacancy_id,
         "show_only_new_responses": True
     }
-
     all_items = []
     page = 0
     while True:
@@ -153,6 +247,17 @@ def get_new_responses(vacancy_id: str, access_token: str) -> Dict[str, Any]:
 # === Резюме ===
 @auto_refresh_or_switch_account
 def get_resume_limit(employer_id: str, manager_id: str, access_token: str) -> Dict[str, Any]:
+    """
+    Получает лимиты на загрузку резюме для указанного работодателя и менеджера.
+
+    Args:
+        employer_id (str): ID работодателя.
+        manager_id (str): ID менеджера.
+        access_token (str): токен доступа к API.
+
+    Returns:
+        Dict[str, Any]: информация о лимите резюме.
+    """
     log.info(f"[get_resume_limit] Запрашиваю лимит резюме для работодателя {employer_id}, менеджера {manager_id}")
     url = f"{BASE_URL}/employers/{employer_id}/managers/{manager_id}/limits/resume"
     headers = {
@@ -170,14 +275,26 @@ def get_resume_limit(employer_id: str, manager_id: str, access_token: str) -> Di
         raise
 
 
-def get_full_resume(resume_id: str, access_token: str, account_num: int = 1, progress_callback: Optional[Callable] = None) -> Optional[Dict]:
+def get_full_resume(resume_id: str, access_token: str, account_num: int = 1,
+                    progress_callback: Optional[Callable] = None) -> Optional[Dict]:
+    """
+    Загружает полные данные о резюме по его ID.
+
+    Args:
+        resume_id (str): ID резюме.
+        access_token (str): токен доступа к API.
+        account_num (int): номер аккаунта (для логирования).
+        progress_callback (Optional[Callable]): callback-функция для обновления прогресса.
+
+    Returns:
+        Optional[Dict]: полные данные о резюме или None.
+    """
     log.debug(f"[get_full_resume] Загрузка полного резюме {resume_id}")
     url = f"{BASE_URL}/resumes/{resume_id}"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "User-Agent": USER_AGENT
     }
-
     for attempt in range(3):
         try:
             response = requests.get(url, headers=headers)
@@ -195,36 +312,47 @@ def get_full_resume(resume_id: str, access_token: str, account_num: int = 1, pro
 
 @auto_refresh_or_switch_account
 def findResumes(
-    *queries,
-    access_token: str,
-    account_num: int = 1,
-    limit: int = 100,
-    area_id: List[str] = ["113"],
-    salary_to: Optional[int] = None,
-    progress_callback: Optional[Callable] = None
+        *queries,
+        access_token: str,
+        account_num: int = 1,
+        limit: int = 100,
+        area_id: List[str] = ["113"],
+        salary_to: Optional[int] = None,
+        progress_callback: Optional[Callable] = None
 ) -> Dict[str, Any]:
+    """
+    Выполняет поиск резюме по указанным ключевым словам и фильтрам.
+
+    Args:
+        *queries (str): строки поиска.
+        access_token (str): токен доступа к API.
+        account_num (int): номер аккаунта (для логирования).
+        limit (int): максимальное количество резюме для возврата.
+        area_id (List[str]): список ID регионов.
+        salary_to (Optional[int]): максимальная зарплата.
+        progress_callback (Optional[Callable]): callback-функция для обновления прогресса.
+
+    Returns:
+        Dict[str, Any]: результаты поиска с метаданными.
+    """
     log.info(f"[findResumes] Поиск резюме. Ключевые слова: {queries}, регион: {area_id}, лимит: {limit}")
     url = f"{BASE_URL}/resumes"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "User-Agent": USER_AGENT
     }
-
     params = {}
     for i, query in enumerate(queries):
         if isinstance(query, str):
             param_name = f"text[{i}]" if i > 0 else "text"
             params[param_name] = query
-
     params["area"] = area_id
     params["relocation"] = "living"
     if salary_to:
         params["salary_to"] = salary_to
     params["per_page"] = min(limit, 100)
-
     all_items = []
     page = 0
-
     while len(all_items) < limit:
         try:
             log.debug(f"[findResumes] Страница {page}")
@@ -234,20 +362,16 @@ def findResumes(
         except Exception as e:
             log.error(f"[findResumes] Ошибка при поиске резюме: {e}", exc_info=True)
             raise
-
         data = response.json()
         items = data.get("items", [])
-
         if not items:
             log.warning("[findResumes] Нет результатов на этой странице")
             break
-
         full_resumes = []
         for item in items:
             resume = get_full_resume(item["id"], access_token, progress_callback=progress_callback)
             if resume:
                 full_resumes.append(resume)
-
         all_items.extend(full_resumes)
         if len(all_items) >= limit:
             log.info(f"[findResumes] Лимит ({limit}) достигнут")
@@ -256,7 +380,6 @@ def findResumes(
             log.warning("[findResumes] Достигнут лимит глубины выдачи (200 страниц)")
             break
         page += 1
-
     log.info(f"[findResumes] Найдено резюме: {len(all_items)}")
     return {
         "query": params,
@@ -268,6 +391,17 @@ def findResumes(
 
 # === Вспомогательные функции ===
 def fetch_paginated_data(url: str, headers: dict, params: dict = None) -> List[Dict]:
+    """
+    Загружает все страницы данных по указанному URL.
+
+    Args:
+        url (str): адрес API.
+        headers (dict): заголовки запроса.
+        params (dict): параметры запроса.
+
+    Returns:
+        List[Dict]: объединённый список элементов со всех страниц.
+    """
     log.debug(f"[fetch_paginated_data] Запрос пагинированных данных с {url}")
     if params is None:
         params = {}
@@ -292,6 +426,15 @@ def fetch_paginated_data(url: str, headers: dict, params: dict = None) -> List[D
 
 
 def refresh_access_token(account_num: int) -> str:
+    """
+    Обновляет токен доступа для указанного аккаунта.
+
+    Args:
+        account_num (int): номер аккаунта.
+
+    Returns:
+        str: новый токен доступа.
+    """
     log.info(f"[refresh_access_token] Обновляю токен аккаунта #{account_num}")
     prefix = f"{account_num}"
     token_url = "https://hh.ru/oauth/token" 
@@ -314,6 +457,18 @@ def refresh_access_token(account_num: int) -> str:
 
 
 def switch_to_next_account(current_account: int) -> Dict[str, Any]:
+    """
+    Переключается на следующий доступный аккаунт.
+
+    Args:
+        current_account (int): текущий номер аккаунта.
+
+    Returns:
+        Dict[str, Any]: новые учётные данные (токен и номер аккаунта).
+
+    Raises:
+        ConnectionError: если все аккаунты исчерпаны.
+    """
     log.info(f"[switch_to_next_account] Переключаюсь на следующий аккаунт после #{current_account}")
     next_account = current_account + 1
     access_token = app_config.access_tokens[next_account - 1]

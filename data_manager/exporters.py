@@ -1,16 +1,20 @@
 """
-data_manager/exporters.py
-
-Модуль содержит класс Exporter — утилиту для экспорта резюме в различные форматы:
+Модуль `exporters` содержит класс Exporter для экспорта резюме в различные форматы:
 - Excel (.xlsx) — основной формат для пользователя.
 - JSON (.json) — для API и внутренних нужд.
+
+Classes:
+    Exporter: утилитный класс для сохранения данных в различных форматах.
+
+Functions:
+    Нет функций верхнего уровня.
 """
 
 from typing import List, Dict, Any, Optional
 import os
 import pandas as pd
 import json
-from config import log  # <-- наш глобальный логгер
+from config import log  # Глобальный логгер
 from config import app_config
 
 
@@ -18,13 +22,23 @@ class Exporter:
     """
     Класс для экспорта данных в различные форматы.
 
-    Методы:
-    - export_to_excel() — сохраняет данные в Excel файл.
-    - export_to_json() — сохраняет данные в JSON файл.
+    Позволяет сохранять данные в формате Excel и JSON.
+    Поддерживает экспорт результатов задач по ID задачи.
+
+    Attributes:
+        output_dir (str): директория, куда будут сохраняться файлы.
+        db_session (Session): сессия базы данных (если используется).
     """
 
     def __init__(self, db_session=None):
-        """Инициализирует директорию для вывода, если она не существует."""
+        """
+        Инициализирует экземпляр Exporter.
+
+        Создаёт выходную директорию, если она не существует.
+
+        Args:
+            db_session (Optional[Session]): сессия БД для загрузки данных.
+        """
         self.output_dir = app_config.OUTPUT_DIR
         os.makedirs(self.output_dir, exist_ok=True)
         self.db_session = db_session
@@ -33,9 +47,16 @@ class Exporter:
     def export_to_excel(self, data: List[Dict[str, Any]], filename: str = "resumes.xlsx") -> str:
         """
         Сохраняет список резюме в формате Excel (.xlsx).
-        :param data: Список словарей с данными о резюме.
-        :param filename: Имя файла для сохранения.
-        :return: Полный путь к файлу.
+
+        Args:
+            data (List[Dict[str, Any]]): список словарей с данными о резюме.
+            filename (str): имя файла для сохранения.
+
+        Returns:
+            str: полный путь к созданному файлу.
+
+        Raises:
+            ValueError: если переданы пустые данные.
         """
         if not data:
             raise ValueError("Нет данных для экспорта в Excel")
@@ -55,7 +76,7 @@ class Exporter:
                 os.makedirs(output_dir, exist_ok=True)
 
             df = pd.DataFrame(data_dicts)
-            df.to_excel(full_path, index=False)  # <-- автоматическое определение движка
+            df.to_excel(full_path, index=False)
 
             log.info(f"[EXPORT] Данные успешно экспортированы в Excel: {full_path}")
             return full_path
@@ -68,9 +89,15 @@ class Exporter:
         """
         Сохраняет список резюме в формате JSON (.json).
 
-        :param data: Список словарей с данными о резюме.
-        :param filename: Имя файла для сохранения.
-        :return: Полный путь к файлу.
+        Args:
+            data (List[Dict[str, Any]]): список словарей с данными о резюме.
+            filename (str): имя файла для сохранения.
+
+        Returns:
+            str: полный путь к созданному файлу.
+
+        Raises:
+            ValueError: если переданы пустые данные.
         """
         if not data:
             raise ValueError("Нет данных для экспорта в JSON")
@@ -88,13 +115,17 @@ class Exporter:
         except Exception as e:
             log.error(f"[EXPORT] Ошибка при экспорте в JSON: {e}", exc_info=True)
             raise
-        
+
     def export_task_results(self, task_id: str, format: str = "excel") -> Optional[str]:
         """
         Экспортирует результаты задачи в указанном формате.
-        :param task_id: ID задачи
-        :param format: формат экспорта ("excel" или "json")
-        :return: путь к файлу
+
+        Args:
+            task_id (str): уникальный идентификатор задачи.
+            format (str): формат экспорта ('excel' или 'json').
+
+        Returns:
+            Optional[str]: полный путь к файлу, если экспорт успешен, иначе None.
         """
         from database.repository import DatabaseRepository
         db_repo = DatabaseRepository(self.db_session)

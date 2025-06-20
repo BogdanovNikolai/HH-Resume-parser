@@ -1,5 +1,5 @@
 from typing import Optional, Dict, Any, List
-from hh.api import findResumes, get_new_responses, get_company_vacancies, get_vacancy_negotiations
+from hh.api import findResumes, get_new_responses, get_company_vacancies, get_vacancy_negotiations, get_employer_id
 from hh.api import get_manager_id, get_resume_limit
 from config import app_config, log
 from utils.token_executor import execute_with_token
@@ -25,7 +25,7 @@ class SearchEngine:
     def get_new_responses(self, vacancy_id: str) -> Optional[Dict]:
         log.info(f"SearchEngine: Получение новых откликов для вакансии {vacancy_id}")
         try:
-            response = get_new_responses(vacancy_id)
+            response = execute_with_token(self._get_new_responses_with_token, vacancy_id)
             if response:
                 log.debug(f"SearchEngine: Получены новые отклики для вакансии {vacancy_id}")
             else:
@@ -38,7 +38,7 @@ class SearchEngine:
     def get_company_vacancies(self) -> Optional[List[Dict]]:
         log.info("SearchEngine: Запрос списка вакансий компании")
         try:
-            vacancies = get_company_vacancies()
+            vacancies = execute_with_token(self._get_company_vacancies_with_token)
             count = len(vacancies) if vacancies else 0
             log.debug(f"SearchEngine: Получено {count} вакансий компании")
             return vacancies
@@ -58,6 +58,10 @@ class SearchEngine:
         except Exception as e:
             log.error("SearchEngine: Ошибка при получении лимита на просмотр резюме", exc_info=True)
             raise
+
+    def _get_new_responses_with_token(self, token: str, vacancy_id: str) -> Optional[Dict]:
+        log.debug(f"SearchEngine: Получение новых откликов с токеном {token[:10]}...")
+        return get_new_responses(vacancy_id=vacancy_id, access_token=token)
 
     def _fetch_limit(self, token: str) -> Optional[int]:
         log.debug("SearchEngine: Выполняется внутренний запрос лимита на просмотр резюме")
@@ -82,3 +86,39 @@ class SearchEngine:
             salary_to=salary_to,
             access_token=token  # <-- здесь передаём токен
         )
+        
+    def _get_company_vacancies_with_token(self, token: str) -> List[Dict]:
+        log.debug(f"SearchEngine: Запрос вакансий компании с токеном {token[:10]}...")
+        
+        # Получаем ID работодателя
+        employer_id = get_employer_id(access_token=token)
+        if not employer_id:
+            log.error("SearchEngine: Не удалось получить ID работодателя")
+            return []
+
+        # Получаем список вакансий
+        vacancies = get_company_vacancies(access_token=token, employer_id=employer_id)
+        if not vacancies:
+            log.warning("SearchEngine: Вакансии не найдены")
+            return []
+
+        # Добавляем статистику по откликам
+        enriched_vacancies = []
+        for vacancy in vacancies:
+            try:
+                stats = get_vacancy_negotiations(access_token=token, vacancy_id=vacancy["id"])
+                enriched_vacancies.append({
+                    "vacancy": vacancy,
+                    "total_responses": stats["total"],
+                    "new_responses": stats["unread"]
+                })
+            except Exception as e:
+                log.error(f"SearchEngine: Ошибка при получении статистики для вакансии {vacancy['id']}: {e}")
+                enriched_vacancies.append({
+                    "vacancy": vacancy,
+                    "total_responses": 0,
+                    "new_responses": 0
+                })
+
+        log.info(f"SearchEngine: Вакансии обогащены статистикой (всего: {len(enriched_vacancies)})")
+        return enriched_vacancies
